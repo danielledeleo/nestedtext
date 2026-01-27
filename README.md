@@ -17,7 +17,7 @@ go get github.com/danielledeleo/nestedtext
 ```go
 input := []byte(`
 name: myapp
-    port: 8080
+port: 8080
 debug: true
 hosts:
     - localhost

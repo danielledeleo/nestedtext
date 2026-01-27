@@ -21,7 +21,7 @@ import (
 //   - Maps are decoded from NestedText dicts.
 //   - Strings are decoded directly.
 //   - Numeric types (int, float64, etc.) are decoded from NestedText strings using strconv.
-//   - Booleans are decoded from strings: "true"/"false", "yes"/"no", "1"/"0".
+//   - Booleans are decoded from strings: "true"/"false" or "1"/"0".
 //
 // Type coercion automatically converts NestedText strings to the target Go type.
 func Unmarshal(data []byte, v interface{}) error {
