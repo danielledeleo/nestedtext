@@ -68,7 +68,53 @@ NestedText values are always strings. When unmarshaling, string values are autom
 - `float32`, `float64`
 - `bool` (`"true"`, `"false"`, `"1"`, `"0"`)
 
-### Low-level API
+## Options
+
+Both encoding and decoding functions accept optional configuration.
+
+### Decode options
+
+```go
+// Parse with options
+result, err := nestedtext.Parse(reader, nestedtext.Minimal())
+
+// Unmarshal with options
+err := nestedtext.Unmarshal(data, &config, nestedtext.Minimal())
+
+// Decoder with options
+dec := nestedtext.NewDecoder(reader, nestedtext.Minimal())
+```
+
+| Option | Effect |
+|--------|--------|
+| `Minimal()` | Reject inline syntax and multi-line keys |
+
+### Encode options
+
+```go
+// Marshal with options
+data, err := nestedtext.Marshal(config, nestedtext.WithIndent(4))
+
+// Encoder with options
+enc := nestedtext.NewEncoder(writer, nestedtext.WithIndent(4), nestedtext.WithFlowWidth(80))
+```
+
+| Option | Effect |
+|--------|--------|
+| `WithIndent(n)` | Set spaces per indent level (default: 2) |
+| `WithFlowWidth(n)` | Max width for inline syntax; 0 disables (default: 128) |
+| `WithMinimal()` | Disable inline syntax; error on multi-line keys |
+
+## Minimal NestedText
+
+[Minimal NestedText](https://nestedtext.org/en/latest/minimal-nestedtext.html) is a subset that excludes:
+- Inline lists: `[a, b, c]`
+- Inline dicts: `{key: value}`
+- Multi-line keys: `: key` prefix
+
+Use `Minimal()` for decoding and `WithMinimal()` for encoding to enforce this subset.
+
+## Low-level API
 
 For dynamic data, use `Parse` which returns `interface{}`:
 
@@ -84,7 +130,8 @@ data := map[string]interface{}{
     "name": "myapp",
     "port": "8080",
 }
-err := nestedtext.NewEncoder(os.Stdout).Encode(data)
+enc := nestedtext.NewEncoder(os.Stdout, nestedtext.WithIndent(4))
+err := enc.Encode(data)
 ```
 
 ## NestedText format
@@ -107,7 +154,7 @@ description:
     > This is a long
     > multiline string
 
-# Inline syntax
+# Inline syntax (not available in Minimal mode)
 point: {x: 1, y: 2}
 tags: [dev, test, prod]
 ```

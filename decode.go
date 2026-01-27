@@ -24,25 +24,20 @@ import (
 //   - Booleans are decoded from strings: "true"/"false" or "1"/"0".
 //
 // Type coercion automatically converts NestedText strings to the target Go type.
-func Unmarshal(data []byte, v interface{}) error {
-	d := NewDecoder(bytes.NewReader(data))
+func Unmarshal(data []byte, v interface{}, opts ...DecodeOption) error {
+	d := NewDecoder(bytes.NewReader(data), opts...)
 	return d.Decode(v)
 }
 
 // Decoder reads and decodes NestedText values from an input stream.
 type Decoder struct {
 	r    io.Reader
-	opts []Option
+	opts []DecodeOption
 }
 
 // NewDecoder returns a new decoder that reads from r.
-func NewDecoder(r io.Reader) *Decoder {
-	return &Decoder{r: r}
-}
-
-// SetOptions sets parser options for the decoder.
-func (d *Decoder) SetOptions(opts ...Option) {
-	d.opts = opts
+func NewDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
+	return &Decoder{r: r, opts: opts}
 }
 
 // Decode reads the next NestedText value from its input and stores it in the value pointed to by v.

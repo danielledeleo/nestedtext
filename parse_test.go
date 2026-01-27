@@ -6,20 +6,6 @@ import (
 	"testing"
 )
 
-func TestParserUsageError(t *testing.T) {
-	_, err := Parse(strings.NewReader(""), TopLevel("dict.config"))
-	if err != nil {
-		t.Logf("got error = %v", err)
-		t.Error("expected top-level 'dict.config' to be ok; produced error")
-	}
-	_, err = Parse(nil, TopLevel("dict-config"))
-	if err == nil {
-		t.Error("expected top-level 'dict-config' to produce an error; didn't")
-	} else {
-		t.Logf("got expected error = %v", err)
-	}
-}
-
 func TestSimpleDict(t *testing.T) {
 	input := `
 # Example for a dict

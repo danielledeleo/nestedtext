@@ -201,7 +201,9 @@ func testEncodeCase(c *ntTestCase, t *testing.T) {
 	}
 
 	buf := &bytes.Buffer{}
-	_, err := nestedtext.Encode(c.dump.DumpIn, buf, nestedtext.IndentBy(4))
+	enc := nestedtext.NewEncoder(buf)
+	enc.SetIndent(4)
+	err := enc.Encode(c.dump.DumpIn)
 
 	if c.dump.expectsError() {
 		if err == nil {
@@ -236,6 +238,111 @@ func testEncodeCase(c *ntTestCase, t *testing.T) {
 	} else {
 		c.statusE = "?"
 	}
+}
+
+// isMinimalCompatible returns true if the test case only uses Minimal NestedText features.
+// Minimal NestedText excludes: inline dicts, inline lists, and multi-line keys (key item).
+func isMinimalCompatible(tc *LoadTestCase) bool {
+	if tc == nil || tc.Types == nil {
+		return true
+	}
+	// These types are not allowed in Minimal NestedText
+	if tc.Types["inline dict"] > 0 {
+		return false
+	}
+	if tc.Types["inline list"] > 0 {
+		return false
+	}
+	if tc.Types["key item"] > 0 {
+		return false
+	}
+	return true
+}
+
+// TestMinimalMode runs the official test suite with Minimal mode enabled.
+// Minimal-compatible tests should pass; non-minimal tests should be rejected.
+func TestMinimalMode(t *testing.T) {
+	suite := loadTestSuite(t)
+
+	t.Run("accepts minimal syntax", func(t *testing.T) {
+		total := 0
+		passed := 0
+
+		for name, tc := range suite.LoadTests {
+			if !isMinimalCompatible(&tc) {
+				continue
+			}
+
+			total++
+			input, err := tc.decodeInput()
+			if err != nil {
+				t.Errorf("[%s] base64 decode error: %v", name, err)
+				continue
+			}
+
+			result, parseErr := nestedtext.Parse(strings.NewReader(string(input)), nestedtext.Minimal())
+
+			if tc.expectsError() {
+				if parseErr == nil {
+					t.Errorf("[%s] expected error but got none", name)
+				} else {
+					passed++
+				}
+				continue
+			}
+
+			if parseErr != nil {
+				t.Errorf("[%s] unexpected error: %v", name, parseErr)
+				continue
+			}
+
+			if deepEqual(result, tc.LoadOut) {
+				passed++
+			} else {
+				t.Errorf("[%s] result mismatch\ninput:\n%s\ngot:  %#v\nwant: %#v", name, string(input), result, tc.LoadOut)
+			}
+		}
+
+		t.Logf("Minimal mode accepted %d/%d minimal-compatible tests", passed, total)
+		if passed != total {
+			t.Errorf("Not all minimal-compatible tests passed")
+		}
+	})
+
+	t.Run("rejects non-minimal syntax", func(t *testing.T) {
+		total := 0
+		rejected := 0
+
+		for name, tc := range suite.LoadTests {
+			if isMinimalCompatible(&tc) {
+				continue
+			}
+			// Skip tests that already expect an error (they'd fail for other reasons)
+			if tc.expectsError() {
+				continue
+			}
+
+			total++
+			input, err := tc.decodeInput()
+			if err != nil {
+				t.Errorf("[%s] base64 decode error: %v", name, err)
+				continue
+			}
+
+			_, parseErr := nestedtext.Parse(strings.NewReader(string(input)), nestedtext.Minimal())
+
+			if parseErr != nil {
+				rejected++
+			} else {
+				t.Errorf("[%s] should have been rejected in minimal mode but wasn't\ninput:\n%s", name, string(input))
+			}
+		}
+
+		t.Logf("Minimal mode rejected %d/%d non-minimal tests", rejected, total)
+		if rejected != total {
+			t.Errorf("Not all non-minimal tests were rejected")
+		}
+	})
 }
 
 // deepEqual compares two values for equality, handling the JSON/Go type differences.

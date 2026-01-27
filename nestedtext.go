@@ -1,73 +1,41 @@
-// Package nestedtext provides tools for processing NestedText, a human friendly data format.
-// For more information on NestedText see
-// https://nestedtext.org .
+// Package nestedtext provides encoding and decoding of NestedText, a human-friendly data format.
+// See https://nestedtext.org for the format specification.
 //
-// To get a feel for the NestedText format, take a look at the following example
-// (shortened version from the NestedText site):
-/*
-   # Contact information for our officers
-
-   president:
-      name: Katheryn McDaniel
-      address:
-         > 138 Almond Street
-         > Topeka, Kansas 20697
-      phone:
-         cell: 1-210-555-5297
-         home: 1-210-555-8470
-            # Katheryn prefers that we always call her on her cell phone.
-      email: KateMcD@aol.com
-      additional roles:
-         - board member
-
-   vice president:
-      name: Margaret Hodge
-      …
-*/
-// NestedText is somewhat reminiscent of YAML, without the complexity of the latter and
-// without the sometimes confusing details of interpretation.
-// NestedText does not interpret any data types (unlike YAML), nor does it impose a schema.
-// All of that has to be done by the application.
+// # Unmarshaling
 //
-// # Parsing NestedText
+// Use [Unmarshal] to decode NestedText into Go structs with automatic type coercion:
 //
-// Parse is the low-level API that returns interface{} values:
-//
-//	input := `
-//	# Example for a NestedText dict
-//	a: Hello
-//	b: World
-//	`
-//
-//	result, err := Parse(strings.NewReader(input))
-//	if err != nil {
-//	    log.Fatal("parsing failed")
-//	}
-//	fmt.Printf("result = %#v\n", result)
-//
-// will yield:
-//
-//	result = map[string]interface {}{"a":"Hello", "b":"World"}
-//
-// # Unmarshaling into structs
-//
-// For type-safe parsing, use Unmarshal with struct tags:
-//
-//	type Config struct {
+//	var config struct {
 //	    Name string `nt:"name"`
 //	    Port int    `nt:"port"`
 //	}
+//	err := nestedtext.Unmarshal(data, &config)
 //
-//	var config Config
-//	err := Unmarshal([]byte(input), &config)
+// # Marshaling
 //
-// # Encoding to NestedText
+// Use [Marshal] to encode Go values to NestedText:
 //
-// Use Marshal to encode Go values to NestedText:
+//	data, err := nestedtext.Marshal(config)
 //
-//	data, err := Marshal(config)
+// # Options
 //
-// Or use Encode for streaming to an io.Writer.
+// Both encoding and decoding functions accept options:
+//
+//	// Decode with Minimal mode (reject inline syntax)
+//	result, err := nestedtext.Parse(r, nestedtext.Minimal())
+//
+//	// Encode with custom indentation
+//	data, err := nestedtext.Marshal(v, nestedtext.WithIndent(4))
+//
+// # Minimal NestedText
+//
+// Minimal NestedText is a subset that excludes inline lists, inline dicts,
+// and multi-line keys. Use [Minimal] for decoding and [WithMinimal] for encoding.
+//
+// # Low-level API
+//
+// Use [Parse] for dynamic data that returns interface{} (string, []interface{},
+// or map[string]interface{}). Use [NewEncoder] and [NewDecoder] for streaming.
 package nestedtext
 
 import "fmt"

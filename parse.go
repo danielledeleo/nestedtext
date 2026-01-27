@@ -2,7 +2,6 @@ package nestedtext
 
 import (
 	"io"
-	"strings"
 
 	"github.com/danielledeleo/nestedtext/internal/parse"
 )
@@ -14,7 +13,7 @@ import (
 // The concrete resulting top-level type depends on the top-level NestedText input type.
 //
 // If a non-nil error is returned, it will be of type NestedTextError.
-func Parse(r io.Reader, opts ...Option) (interface{}, error) {
+func Parse(r io.Reader, opts ...DecodeOption) (interface{}, error) {
 	p := parse.NewParser(makeFormatError, wrapIOError, makeParsingError, ErrCodeFormat)
 	for _, opt := range opts {
 		if err := opt(p); err != nil {
@@ -26,58 +25,21 @@ func Parse(r io.Reader, opts ...Option) (interface{}, error) {
 
 // --- Parser options --------------------------------------------------------
 
-// Option is a type to influence the behaviour of the parsing process.
-// Multiple options may be passed to `Parse(…)`.
-type Option func(*parse.Parser) error
+// DecodeOption configures the behavior of the parsing/decoding process.
+// Multiple options may be passed to Parse, Unmarshal, or NewDecoder.
+type DecodeOption func(*parse.Parser) error
 
-// TopLevel determines the top-level type of the return value from parsing.
-// Possible values are "list" and "dict". "list" will force the result to be an
-// []interface{} (of possibly one item), while "dict" will force the result to be of
-// type map[string]interface.
+// Minimal returns a DecodeOption that enables Minimal NestedText mode.
+// In Minimal mode, the parser rejects:
+//   - Inline list syntax: [...]
+//   - Inline dict syntax: {...}
+//   - Multi-line key syntax: ": key" prefix
 //
-// For "dict", if the result is not a dict naturally, it will be wrapped in a map with a single
-// key = "nestedtext". However, if the dict-option is given with a suffix (separated by '.'), the
-// suffix string will be used as the top-level key. In this case, even naturally parsed dicts will
-// be wrapped into a map with a single key (= the suffix to "dict.").
-//
-// Use as:
-//
-//	nestedtext.Parse(reader, nestedtext.TopLevel("dict.config"))
-//
-// This will result in a return-value of map[string]interface{} with a single entry
-// map["config"] = …
-//
-// The default is for the parsing-result to be of the natural type corresponding to the
-// top-level item of the input source.
-// Option-strings other than "list" and "dict"/"dict.<suffix>" will result in an error
-// returned by Parse(…).
-func TopLevel(top string) Option {
-	return func(p *parse.Parser) (err error) {
-		switch top {
-		case "dict":
-			p.TopLevel = "dict"
-		case "list":
-			p.TopLevel = "list"
-		default:
-			if strings.HasPrefix(top, "dict.") {
-				p.TopLevel = top[5:]
-			} else {
-				return MakeNestedTextError(ErrCodeUsage, `option TopLevel( "list" | "dict"(".<suffix>")? )`)
-			}
-		}
-		return nil
-	}
-}
-
-// KeepLegacyBidi requests the parser to keep Unicode LTR and RTL markers.
-//
-// Attention: This option is not yet functional!
-func KeepLegacyBidi(keep bool) Option {
-	// Default behaviour should be to strip LTR and RTL legacy control characters.
-	// For security reasons applications should usually treat LTR/RTL cautiously when read
-	// in from external sources. You can find various sources on the internet discussion
-	// this problem, including a policy in place at GitHub.
-	return func(p *parse.Parser) (err error) {
+// This enforces the Minimal NestedText subset as defined at
+// https://nestedtext.org/en/latest/minimal-nestedtext.html
+func Minimal() DecodeOption {
+	return func(p *parse.Parser) error {
+		p.MinimalMode = true
 		return nil
 	}
 }

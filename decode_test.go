@@ -610,3 +610,72 @@ servers:
 		t.Errorf("Servers[1].Port = %d, want %d", config.Servers[1].Port, 9090)
 	}
 }
+
+// --- Minimal mode tests ---
+
+func TestMinimalModeRejectsInlineList(t *testing.T) {
+	input := `[a, b, c]`
+	_, err := Parse(strings.NewReader(input), Minimal())
+	if err == nil {
+		t.Error("expected error for inline list in minimal mode, got nil")
+	}
+}
+
+func TestMinimalModeRejectsInlineDict(t *testing.T) {
+	input := `{key: value}`
+	_, err := Parse(strings.NewReader(input), Minimal())
+	if err == nil {
+		t.Error("expected error for inline dict in minimal mode, got nil")
+	}
+}
+
+func TestMinimalModeRejectsMultilineKey(t *testing.T) {
+	input := `: first line
+: second line
+    value
+`
+	_, err := Parse(strings.NewReader(input), Minimal())
+	if err == nil {
+		t.Error("expected error for multi-line key in minimal mode, got nil")
+	}
+}
+
+func TestMinimalModeAcceptsBlockSyntax(t *testing.T) {
+	input := `
+name: test
+items:
+    - one
+    - two
+`
+	result, err := Parse(strings.NewReader(input), Minimal())
+	if err != nil {
+		t.Fatalf("unexpected error in minimal mode with block syntax: %v", err)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T", result)
+	}
+	if m["name"] != "test" {
+		t.Errorf("name = %q, want %q", m["name"], "test")
+	}
+}
+
+func TestUnmarshalWithMinimalOption(t *testing.T) {
+	input := `
+name: myapp
+port: 8080
+`
+	type Config struct {
+		Name string `nt:"name"`
+		Port int    `nt:"port"`
+	}
+
+	var config Config
+	err := Unmarshal([]byte(input), &config, Minimal())
+	if err != nil {
+		t.Fatalf("Unmarshal with Minimal() failed: %v", err)
+	}
+	if config.Name != "myapp" {
+		t.Errorf("Name = %q, want %q", config.Name, "myapp")
+	}
+}

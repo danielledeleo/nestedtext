@@ -1,18 +1,21 @@
 package nestedtext
 
 import (
-	"io"
 	"strings"
 	"testing"
 )
 
-func TestEncodeOptions(t *testing.T) {
-	n, err := Encode("X", io.Discard, IndentBy(5), InlineLimited(80))
+func TestEncoderOptions(t *testing.T) {
+	var buf strings.Builder
+	enc := NewEncoder(&buf)
+	enc.SetIndent(5)
+	enc.SetFlowWidth(80)
+	err := enc.Encode("X")
 	if err != nil {
 		t.Error(err)
 	}
-	if n != 4 { // "> X\n"
-		t.Errorf("expected encoding to be of length 4, is %d", n)
+	if buf.Len() != 4 { // "> X\n"
+		t.Errorf("expected encoding to be of length 4, is %d", buf.Len())
 	}
 }
 
@@ -281,7 +284,7 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 func expectEncode(t *testing.T, tree interface{}, target string) {
 	t.Helper()
 	out := &strings.Builder{}
-	Encode(tree, out)
+	NewEncoder(out).Encode(tree)
 	str := out.String()
 	t.Logf("encoded:\n%s", str)
 	S := strings.Split(str, "\n")
@@ -296,5 +299,76 @@ func expectEncode(t *testing.T, tree interface{}, target string) {
 		if T[i] != s {
 			t.Errorf("%q != %q", s, T[i])
 		}
+	}
+}
+
+// --- Option tests ---
+
+func TestEncoderWithOptions(t *testing.T) {
+	var buf strings.Builder
+	enc := NewEncoder(&buf, WithIndent(4), WithFlowWidth(0))
+	err := enc.Encode(map[string]string{"key": "value"})
+	if err != nil {
+		t.Fatalf("Encode failed: %v", err)
+	}
+	expected := "key: value\n"
+	if buf.String() != expected {
+		t.Errorf("got %q, want %q", buf.String(), expected)
+	}
+}
+
+func TestMarshalWithOptions(t *testing.T) {
+	data := map[string]interface{}{
+		"nested": map[string]string{"a": "b"},
+	}
+	result, err := Marshal(data, WithIndent(4))
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+	expected := `nested:
+    a: b
+`
+	if string(result) != expected {
+		t.Errorf("got %q, want %q", string(result), expected)
+	}
+}
+
+// --- Minimal mode tests ---
+
+func TestWithMinimalNoInlineLists(t *testing.T) {
+	// Without minimal mode, short string lists are inlined
+	data := []string{"a", "b"}
+
+	// With minimal mode, they should be block style
+	result, err := Marshal(data, WithMinimal())
+	if err != nil {
+		t.Fatalf("Marshal with WithMinimal failed: %v", err)
+	}
+	expected := `- a
+- b
+`
+	if string(result) != expected {
+		t.Errorf("got %q, want %q", string(result), expected)
+	}
+}
+
+func TestWithMinimalErrorOnMultilineKey(t *testing.T) {
+	// Key containing newline should error in minimal mode
+	data := map[string]string{"key\nwith\nnewlines": "value"}
+	_, err := Marshal(data, WithMinimal())
+	if err == nil {
+		t.Error("expected error for multi-line key in minimal mode, got nil")
+	}
+}
+
+func TestWithMinimalAcceptsNormalKeys(t *testing.T) {
+	data := map[string]string{"normal-key": "value"}
+	result, err := Marshal(data, WithMinimal())
+	if err != nil {
+		t.Fatalf("Marshal with WithMinimal failed: %v", err)
+	}
+	expected := "normal-key: value\n"
+	if string(result) != expected {
+		t.Errorf("got %q, want %q", string(result), expected)
 	}
 }

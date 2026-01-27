@@ -10,12 +10,10 @@ import (
 	"strings"
 )
 
-// DefaultInlineLimit is the threshold above which lists and dicts are not encoded as inline lists/dicts.
-const DefaultInlineLimit = 128
-
-// MaxIndent is the maximum number of spaces used as indent.
-// Indentation may be in the range of 1…MaxIndent.
-const MaxIndent = 16
+const (
+	defaultInlineLimit = 128
+	fastIndentMax      = 16 // size of pre-allocated space buffer
+)
 
 // Marshal returns the NestedText encoding of v.
 //
@@ -50,9 +48,9 @@ const MaxIndent = 16
 // the decimal representation of the number.
 //
 // Boolean values encode as the strings "true" or "false".
-func Marshal(v interface{}) ([]byte, error) {
+func Marshal(v interface{}, opts ...EncodeOption) ([]byte, error) {
 	var buf bytes.Buffer
-	enc := NewEncoder(&buf)
+	enc := NewEncoder(&buf, opts...)
 	if err := enc.Encode(v); err != nil {
 		return nil, err
 	}
@@ -64,35 +62,91 @@ type Encoder struct {
 	w           io.Writer
 	indentSize  int
 	inlineLimit int
+	minimalMode bool
 }
 
-// NewEncoder returns a new encoder that writes to w.
-func NewEncoder(w io.Writer) *Encoder {
-	return &Encoder{
-		w:           w,
-		indentSize:  2,
-		inlineLimit: DefaultInlineLimit,
+// EncodeOption configures the behavior of the encoding process.
+// Multiple options may be passed to Marshal or NewEncoder.
+type EncodeOption func(*Encoder)
+
+// WithIndent returns an option that sets the number of spaces per indentation level.
+// The default is 2. Values less than 1 are treated as 1.
+func WithIndent(n int) EncodeOption {
+	return func(enc *Encoder) {
+		if n < 1 {
+			n = 1
+		}
+		enc.indentSize = n
 	}
 }
 
+// WithFlowWidth returns an option that sets the maximum width for inline (flow-style)
+// lists and dicts. If the inline representation exceeds this width, it will be
+// rendered in block style (multi-line) instead.
+//
+// Set to 0 to disable inline rendering entirely.
+//
+// The default is 128.
+func WithFlowWidth(width int) EncodeOption {
+	return func(enc *Encoder) {
+		if width < 0 {
+			width = 0
+		}
+		enc.inlineLimit = width
+	}
+}
+
+// WithMinimal returns an option that enables Minimal NestedText mode.
+// In Minimal mode, the encoder will:
+//   - Never emit inline list syntax: [...]
+//   - Never emit inline dict syntax: {...}
+//   - Never emit multi-line key syntax: ": key" prefix
+//
+// Keys containing newlines will cause an error during encoding.
+//
+// This produces output conforming to the Minimal NestedText subset as defined at
+// https://nestedtext.org/en/latest/minimal-nestedtext.html
+func WithMinimal() EncodeOption {
+	return func(enc *Encoder) {
+		enc.minimalMode = true
+		enc.inlineLimit = 0
+	}
+}
+
+// NewEncoder returns a new encoder that writes to w.
+func NewEncoder(w io.Writer, opts ...EncodeOption) *Encoder {
+	enc := &Encoder{
+		w:           w,
+		indentSize:  2,
+		inlineLimit: defaultInlineLimit,
+	}
+	for _, opt := range opts {
+		opt(enc)
+	}
+	return enc
+}
+
 // SetIndent sets the number of spaces per indentation level.
-// The default is 2. Allowed values are 1…MaxIndent.
+// The default is 2. Values less than 1 are treated as 1.
 func (enc *Encoder) SetIndent(n int) {
 	if n < 1 {
 		n = 1
-	} else if n > MaxIndent {
-		n = MaxIndent
 	}
 	enc.indentSize = n
 }
 
-// SetInlineLimit sets the threshold above which lists and dicts are not inlined.
-// Defaults to DefaultInlineLimit; may not exceed 2048.
-func (enc *Encoder) SetInlineLimit(limit int) {
-	if limit > 2048 {
-		limit = 2048
+// SetFlowWidth sets the maximum width for inline (flow-style) lists and dicts.
+// If the inline representation of a list or dict exceeds this width, it will
+// be rendered in block style (multi-line) instead.
+//
+// Set to 0 to disable inline rendering entirely.
+//
+// The default is 128.
+func (enc *Encoder) SetFlowWidth(width int) {
+	if width < 0 {
+		width = 0
 	}
-	enc.inlineLimit = limit
+	enc.inlineLimit = width
 }
 
 // Encode writes the NestedText encoding of v to the stream.
@@ -303,7 +357,11 @@ func (enc *Encoder) encodeReflected(indent int, tree interface{}, bcnt int, err 
 					bcnt, err = enc.encodeIfNotEmpty(item, indent, bcnt, err)
 				}
 			} else { // output key as a multi-line key
-				S := strings.Split(key, "\n")
+			if enc.minimalMode {
+				return 0, MakeNestedTextError(ErrCodeSchema,
+					"map key contains newline; multi-line keys are not allowed in minimal mode")
+			}
+			S := strings.Split(key, "\n")
 				for _, s := range S {
 					bcnt, err = enc.indent(bcnt, err, indent)
 					if s == "" {
@@ -396,6 +454,10 @@ func (enc *Encoder) encodeStruct(indent int, v reflect.Value, bcnt int, err erro
 			}
 		} else {
 			// Multi-line key (rare for struct field names)
+			if enc.minimalMode {
+				return 0, MakeNestedTextError(ErrCodeSchema,
+					"struct field name contains newline; multi-line keys are not allowed in minimal mode")
+			}
 			S := strings.Split(f.name, "\n")
 			for _, s := range S {
 				bcnt, err = enc.indent(bcnt, err, indent)
@@ -500,8 +562,8 @@ func isInlineable(what int, item interface{}) (bool, []byte) {
 	}
 }
 
-// used for indentation
-var encSpaces = [MaxIndent]byte{
+// pre-allocated spaces for fast path indentation
+var encSpaces = [fastIndentMax]byte{
 	' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ',
 }
 
@@ -509,7 +571,13 @@ var encSpaces = [MaxIndent]byte{
 func (enc *Encoder) indent(bcnt int, err error, indent int) (int, error) {
 	c := 0
 	for i := 0; i < indent; i++ {
-		c, err = enc.wr(0, err, encSpaces[:enc.indentSize])
+		if enc.indentSize <= fastIndentMax {
+			// fast path: use pre-allocated buffer
+			c, err = enc.wr(0, err, encSpaces[:enc.indentSize])
+		} else {
+			// slow path: allocate for large indent sizes
+			c, err = enc.wr(0, err, bytes.Repeat([]byte{' '}, enc.indentSize))
+		}
 		bcnt += c
 	}
 	return bcnt, err
@@ -528,36 +596,3 @@ func (enc *Encoder) wr(bcnt int, err error, data []byte) (int, error) {
 	return bcnt + c, err
 }
 
-// --- Legacy API for compatibility ---
-
-// EncoderOption is a type to influence the behaviour of the encoding process.
-type EncoderOption func(*Encoder)
-
-// IndentBy sets the number of spaces per indentation level. The default is 2.
-// Allowed values are 1…MaxIndent
-func IndentBy(indentSize int) EncoderOption {
-	return func(enc *Encoder) {
-		enc.SetIndent(indentSize)
-	}
-}
-
-// InlineLimited sets the threshold above which lists and dicts are never inlined.
-// If set to a small number, inlining is suppressed.
-// Defaults to DefaultInlineLimit; may not exceed 2048.
-func InlineLimited(limit int) EncoderOption {
-	return func(enc *Encoder) {
-		enc.SetInlineLimit(limit)
-	}
-}
-
-// Encode encodes its argument `tree` as a byte stream in NestedText format.
-// It returns the number of bytes written and possibly an error.
-//
-// This is the legacy API; prefer using Marshal or NewEncoder for new code.
-func Encode(tree interface{}, w io.Writer, opts ...EncoderOption) (int, error) {
-	enc := NewEncoder(w)
-	for _, opt := range opts {
-		opt(enc)
-	}
-	return enc.encode(0, tree, 0, nil)
-}

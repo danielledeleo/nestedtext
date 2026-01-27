@@ -10,11 +10,12 @@ import (
 // Parser is a recursive-descend parser working on a grammar on input lines.
 // The scanner is expected to return line by line wrapped into `Token`.
 type Parser struct {
-	Sc       *Scanner          // line level scanner
-	Token    *Token            // the current token from the scanner
-	Inline   *InlineItemParser // sub-parser for inline lists/dicts
-	TopLevel string            // type of top-level item
-	Stack    Stack             // parser stack
+	Sc          *Scanner          // line level scanner
+	Token       *Token            // the current token from the scanner
+	Inline      *InlineItemParser // sub-parser for inline lists/dicts
+	TopLevel    string            // type of top-level item
+	MinimalMode bool              // if true, reject inline syntax and multi-line keys
+	Stack       Stack             // parser stack
 
 	// Error creation functions
 	MakeFormatError  func(string) error
@@ -75,6 +76,10 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 	case StringMultiline:
 		result, err = p.parseMultiString(p.Token.Indent)
 	case InlineList:
+		if p.MinimalMode {
+			return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat,
+				"inline list syntax is not allowed in minimal mode")
+		}
 		p.Inline.LineNo = p.Token.LineNo
 		result, err = p.Inline.Parse(StateS2, p.Token.Content[0], p.MakeFormatError)
 		if err == nil {
@@ -83,6 +88,10 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 			}
 		}
 	case InlineDict:
+		if p.MinimalMode {
+			return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat,
+				"inline dict syntax is not allowed in minimal mode")
+		}
 		p.Inline.LineNo = p.Token.LineNo
 		result, err = p.Inline.Parse(StateS1, p.Token.Content[0], p.MakeFormatError)
 		if err == nil {
@@ -93,6 +102,10 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 	case ListItem, ListItemMultiline:
 		result, err = p.parseList(indent)
 	case InlineDictKeyValue, InlineDictKey, DictKeyMultiline:
+		if p.MinimalMode && p.Token.TokenType == DictKeyMultiline {
+			return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat,
+				"multi-line key syntax is not allowed in minimal mode")
+		}
 		result, err = p.parseDict(indent)
 	default:
 		panic(fmt.Sprintf("unknown item type: %d", p.Token.TokenType))
@@ -196,6 +209,10 @@ func (p *Parser) parseDictKeyValuePairs(indent int) (result interface{}, err err
 		case InlineDictKey:
 			kv, err = p.parseDictKeyAnyValuePair(indent)
 		case DictKeyMultiline:
+			if p.MinimalMode {
+				return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat,
+					"multi-line key syntax is not allowed in minimal mode")
+			}
 			kv, err = p.parseDictKeyValuePairWithMultilineKey(indent)
 		}
 		if kv.value != nil {
