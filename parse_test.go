@@ -1,4 +1,4 @@
-package nestext
+package nestedtext
 
 import (
 	"fmt"

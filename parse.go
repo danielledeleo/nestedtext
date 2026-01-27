@@ -1,10 +1,10 @@
-package nestext
+package nestedtext
 
 import (
 	"io"
 	"strings"
 
-	"github.com/npillmayer/nestext/internal/parse"
+	"github.com/danielledeleo/nestedtext/internal/parse"
 )
 
 // === Top-level API =========================================================
@@ -42,7 +42,7 @@ type Option func(*parse.Parser) error
 //
 // Use as:
 //
-//	nestext.Parse(reader, nestext.TopLevel("dict.config"))
+//	nestedtext.Parse(reader, nestedtext.TopLevel("dict.config"))
 //
 // This will result in a return-value of map[string]interface{} with a single entry
 // map["config"] = …

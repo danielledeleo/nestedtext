@@ -1,4 +1,4 @@
-package nestext
+package nestedtext
 
 import (
 	"bytes"
@@ -425,7 +425,7 @@ type UnmarshalTypeError struct {
 
 func (e *UnmarshalTypeError) Error() string {
 	if e.Path != "" {
-		return fmt.Sprintf("nestext: cannot unmarshal %s into Go value of type %s at %s", e.Value, e.Type, e.Path)
+		return fmt.Sprintf("nestedtext: cannot unmarshal %s into Go value of type %s at %s", e.Value, e.Type, e.Path)
 	}
-	return fmt.Sprintf("nestext: cannot unmarshal %s into Go value of type %s", e.Value, e.Type)
+	return fmt.Sprintf("nestedtext: cannot unmarshal %s into Go value of type %s", e.Value, e.Type)
 }

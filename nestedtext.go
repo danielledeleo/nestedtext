@@ -1,4 +1,4 @@
-// Package nestext provides tools for processing NestedText, a human friendly data format.
+// Package nestedtext provides tools for processing NestedText, a human friendly data format.
 // For more information on NestedText see
 // https://nestedtext.org .
 //
@@ -68,7 +68,7 @@
 //	data, err := Marshal(config)
 //
 // Or use Encode for streaming to an io.Writer.
-package nestext
+package nestedtext
 
 import "fmt"
 

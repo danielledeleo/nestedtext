@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/npillmayer/nestext"
+	"github.com/danielledeleo/nestedtext"
 )
 
 // This test runner tests the full NestedText test-suite, as proposed in the
@@ -165,7 +165,7 @@ func testDecodeCase(c *ntTestCase, t *testing.T) {
 		return
 	}
 
-	nt, parseErr := nestext.Parse(strings.NewReader(string(input)))
+	nt, parseErr := nestedtext.Parse(strings.NewReader(string(input)))
 
 	if c.load.expectsError() {
 		if parseErr == nil {
@@ -201,7 +201,7 @@ func testEncodeCase(c *ntTestCase, t *testing.T) {
 	}
 
 	buf := &bytes.Buffer{}
-	_, err := nestext.Encode(c.dump.DumpIn, buf, nestext.IndentBy(4))
+	_, err := nestedtext.Encode(c.dump.DumpIn, buf, nestedtext.IndentBy(4))
 
 	if c.dump.expectsError() {
 		if err == nil {

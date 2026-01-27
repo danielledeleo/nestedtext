@@ -1,10 +1,10 @@
-package nestext_test
+package nestedtext_test
 
 import (
 	"fmt"
 	"strings"
 
-	"github.com/npillmayer/nestext"
+	"github.com/danielledeleo/nestedtext"
 )
 
 func ExampleParse() {
@@ -23,7 +23,7 @@ additional roles:
 `
 
 	// parse address input and print out e-mail item
-	result, err := nestext.Parse(strings.NewReader(address))
+	result, err := nestedtext.Parse(strings.NewReader(address))
 	if err != nil {
 		panic(err)
 	}
