@@ -145,3 +145,23 @@ func _dump(space string, v interface{}) {
 		fmt.Printf("%v%v\n", space, v)
 	}
 }
+
+func TestMaxNestingDepth(t *testing.T) {
+	// Create deeply nested dicts: "a:\n  b:\n    c:\n ..." (6000 levels)
+	var sb strings.Builder
+	for i := 0; i < 6000; i++ {
+		sb.WriteString(strings.Repeat("  ", i))
+		sb.WriteString(fmt.Sprintf("k%d:\n", i))
+	}
+	// Add a value at the deepest level
+	sb.WriteString(strings.Repeat("  ", 6000))
+	sb.WriteString("end: value\n")
+
+	_, err := Parse(strings.NewReader(sb.String()))
+	if err == nil {
+		t.Fatal("expected error for deeply nested input")
+	}
+	if !strings.Contains(err.Error(), "exceeded max nesting depth") {
+		t.Fatalf("expected 'exceeded max nesting depth' error, got: %v", err)
+	}
+}

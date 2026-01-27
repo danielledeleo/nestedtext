@@ -44,7 +44,7 @@ func NewDecoder(r io.Reader, opts ...DecodeOption) *Decoder {
 func (d *Decoder) Decode(v interface{}) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Pointer || rv.IsNil() {
-		return MakeNestedTextError(ErrCodeUnmarshal, "Decode requires non-nil pointer argument")
+		return makeNestedTextError(ErrCodeUnmarshal, "Decode requires non-nil pointer argument")
 	}
 
 	parsed, err := Parse(d.r, d.opts...)
@@ -95,19 +95,11 @@ func getStructInfo(t reflect.Type) *structInfo {
 			fieldType: field.Type,
 		}
 
-		tag := field.Tag.Get("nt")
-		if tag == "-" {
-			fi.ignore = true
-		} else if tag != "" {
-			parts := strings.Split(tag, ",")
-			if parts[0] != "" {
-				fi.tag = parts[0]
-			}
-			for _, opt := range parts[1:] {
-				if opt == "omitempty" {
-					fi.omitEmpty = true
-				}
-			}
+		tagOpts := parseNTTag(field.Tag.Get("nt"))
+		fi.ignore = tagOpts.ignore
+		fi.omitEmpty = tagOpts.omitEmpty
+		if tagOpts.name != "" {
+			fi.tag = tagOpts.name
 		}
 
 		info.fields = append(info.fields, fi)

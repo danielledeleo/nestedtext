@@ -38,7 +38,10 @@
 // or map[string]interface{}). Use [NewEncoder] and [NewDecoder] for streaming.
 package nestedtext
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // --- Error type ------------------------------------------------------------
 
@@ -78,8 +81,8 @@ func (e NestedTextError) Unwrap() error {
 	return e.wrappedError
 }
 
-// MakeNestedTextError creates a NestedTextError with a given error code and message.
-func MakeNestedTextError(code int, errMsg string) NestedTextError {
+// makeNestedTextError creates a NestedTextError with a given error code and message.
+func makeNestedTextError(code int, errMsg string) NestedTextError {
 	err := NestedTextError{
 		Code: code,
 		msg:  errMsg,
@@ -87,9 +90,9 @@ func MakeNestedTextError(code int, errMsg string) NestedTextError {
 	return err
 }
 
-// WrapError wraps an error into a NestedTextError
-func WrapError(code int, errMsg string, err error) NestedTextError {
-	e := MakeNestedTextError(code, errMsg)
+// wrapError wraps an error into a NestedTextError.
+func wrapError(code int, errMsg string, err error) NestedTextError {
+	e := makeNestedTextError(code, errMsg)
 	e.wrappedError = err
 	return e
 }
@@ -99,4 +102,36 @@ func WrapError(code int, errMsg string, err error) NestedTextError {
 // or map[string]interface{} depending on the NestedText structure.
 type Unmarshaler interface {
 	UnmarshalNT(value interface{}) error
+}
+
+// --- Struct tag parsing -----------------------------------------------------
+
+// ntTagOptions holds the parsed options from a struct field's "nt" tag.
+type ntTagOptions struct {
+	name      string // custom field name (empty if not specified)
+	omitEmpty bool   // omitempty option present
+	ignore    bool   // field should be ignored (tag == "-")
+}
+
+// parseNTTag parses a struct field's "nt" tag and returns the options.
+// Tag format: "name,omitempty" or "-" to ignore the field.
+func parseNTTag(tag string) ntTagOptions {
+	var opts ntTagOptions
+	if tag == "-" {
+		opts.ignore = true
+		return opts
+	}
+	if tag == "" {
+		return opts
+	}
+	parts := strings.Split(tag, ",")
+	if parts[0] != "" {
+		opts.name = parts[0]
+	}
+	for _, opt := range parts[1:] {
+		if opt == "omitempty" {
+			opts.omitEmpty = true
+		}
+	}
+	return opts
 }

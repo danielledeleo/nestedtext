@@ -7,6 +7,9 @@ import (
 	"strings"
 )
 
+// maxNestingDepth limits recursion to prevent stack overflow from malicious input.
+const maxNestingDepth = 5000
+
 // Parser is a recursive-descend parser working on a grammar on input lines.
 // The scanner is expected to return line by line wrapped into `Token`.
 type Parser struct {
@@ -16,6 +19,7 @@ type Parser struct {
 	TopLevel    string            // type of top-level item
 	MinimalMode bool              // if true, reject inline syntax and multi-line keys
 	Stack       Stack             // parser stack
+	depth       int               // current nesting depth
 
 	// Error creation functions
 	MakeFormatError  func(string) error
@@ -72,6 +76,11 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 	if p.Token.Indent < indent {
 		return nil, nil
 	}
+	if p.depth >= maxNestingDepth {
+		return nil, p.MakeFormatError("exceeded max nesting depth")
+	}
+	p.depth++
+	defer func() { p.depth-- }()
 	switch p.Token.TokenType {
 	case StringMultiline:
 		result, err = p.parseMultiString(p.Token.Indent)
@@ -108,7 +117,7 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 		}
 		result, err = p.parseDict(indent)
 	default:
-		panic(fmt.Sprintf("unknown item type: %d", p.Token.TokenType))
+		return nil, p.MakeFormatError(fmt.Sprintf("internal error: unknown item type %d", p.Token.TokenType))
 	}
 	return
 }

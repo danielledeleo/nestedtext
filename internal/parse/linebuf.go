@@ -148,21 +148,16 @@ func (buf *LineBuffer) AdvanceLine() error {
 	return buf.AdvanceCursor()
 }
 
-var blankPattern *regexp.Regexp
-var commentPattern *regexp.Regexp
+var (
+	blankPattern   = regexp.MustCompile(`^\s*$`)
+	commentPattern = regexp.MustCompile(`^\s*#`)
+)
 
 // IsIgnoredLine is a predicate for the current line of input. From the spec:
 // Blank lines are lines that are empty or consist only of white space characters (spaces or tabs).
 // Comments are lines that have # as the first non-white-space character on the line.
 func (buf *LineBuffer) IsIgnoredLine() bool {
-	if blankPattern == nil {
-		blankPattern = regexp.MustCompile(`^\s*$`)
-		commentPattern = regexp.MustCompile(`^\s*#`)
-	}
-	if blankPattern.MatchString(buf.Text) || commentPattern.MatchString(buf.Text) {
-		return true
-	}
-	return false
+	return blankPattern.MatchString(buf.Text) || commentPattern.MatchString(buf.Text)
 }
 
 // ReadLineRemainder returns the remainder of the current line of input text.

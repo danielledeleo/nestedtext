@@ -47,11 +47,11 @@ func Minimal() DecodeOption {
 // --- Error helper functions for internal package ---------------------------
 
 func makeFormatError(msg string) error {
-	return MakeNestedTextError(ErrCodeFormat, msg)
+	return makeNestedTextError(ErrCodeFormat, msg)
 }
 
 func wrapIOError(msg string, err error) error {
-	return WrapError(ErrCodeIO, msg, err)
+	return wrapError(ErrCodeIO, msg, err)
 }
 
 func makeParsingError(token *parse.Token, code int, msg string) error {

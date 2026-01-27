@@ -180,7 +180,7 @@ func (enc *Encoder) encode(indent int, tree interface{}, bcnt int, err error) (i
 	}
 
 	if !isEncodable(tree) {
-		return 0, MakeNestedTextError(ErrCodeSchema,
+		return 0, makeNestedTextError(ErrCodeSchema,
 			fmt.Sprintf("unable to encode type %T", tree))
 	}
 	switch t := tree.(type) {
@@ -339,7 +339,7 @@ func (enc *Encoder) encodeReflected(indent int, tree interface{}, bcnt int, err 
 		})
 		for _, k := range keys {
 			if k.Kind() != reflect.String {
-				return 0, MakeNestedTextError(ErrCodeSchema,
+				return 0, makeNestedTextError(ErrCodeSchema,
 					"map key is not a string; can only encode keys of type string")
 			}
 			key := k.Interface().(string)
@@ -358,7 +358,7 @@ func (enc *Encoder) encodeReflected(indent int, tree interface{}, bcnt int, err 
 				}
 			} else { // output key as a multi-line key
 			if enc.minimalMode {
-				return 0, MakeNestedTextError(ErrCodeSchema,
+				return 0, makeNestedTextError(ErrCodeSchema,
 					"map key contains newline; multi-line keys are not allowed in minimal mode")
 			}
 			S := strings.Split(key, "\n")
@@ -378,7 +378,7 @@ func (enc *Encoder) encodeReflected(indent int, tree interface{}, bcnt int, err 
 	case reflect.Struct:
 		bcnt, err = enc.encodeStruct(indent, v, bcnt, err)
 	default:
-		err = MakeNestedTextError(ErrCodeSchema,
+		err = makeNestedTextError(ErrCodeSchema,
 			fmt.Sprintf("unable to encode type %T", tree))
 	}
 	return bcnt, err
@@ -403,25 +403,15 @@ func (enc *Encoder) encodeStruct(indent int, v reflect.Value, bcnt int, err erro
 		fieldValue := v.Field(i)
 		name := field.Name
 
-		tag := field.Tag.Get("nt")
-		if tag == "-" {
+		tagOpts := parseNTTag(field.Tag.Get("nt"))
+		if tagOpts.ignore {
 			continue // skip this field
 		}
-
-		omitempty := false
-		if tag != "" {
-			parts := strings.Split(tag, ",")
-			if parts[0] != "" {
-				name = parts[0]
-			}
-			for _, opt := range parts[1:] {
-				if opt == "omitempty" {
-					omitempty = true
-				}
-			}
+		if tagOpts.name != "" {
+			name = tagOpts.name
 		}
 
-		if omitempty && isEmptyValue(fieldValue) {
+		if tagOpts.omitEmpty && isEmptyValue(fieldValue) {
 			continue
 		}
 
@@ -455,7 +445,7 @@ func (enc *Encoder) encodeStruct(indent int, v reflect.Value, bcnt int, err erro
 		} else {
 			// Multi-line key (rare for struct field names)
 			if enc.minimalMode {
-				return 0, MakeNestedTextError(ErrCodeSchema,
+				return 0, makeNestedTextError(ErrCodeSchema,
 					"struct field name contains newline; multi-line keys are not allowed in minimal mode")
 			}
 			S := strings.Split(f.name, "\n")
@@ -591,7 +581,7 @@ func (enc *Encoder) wr(bcnt int, err error, data []byte) (int, error) {
 	}
 	c, err := enc.w.Write(data)
 	if err != nil {
-		err = WrapError(ErrCodeIO, "write error during encoding", err)
+		err = wrapError(ErrCodeIO, "write error during encoding", err)
 	}
 	return bcnt + c, err
 }
