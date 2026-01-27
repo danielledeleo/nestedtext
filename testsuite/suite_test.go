@@ -2,12 +2,11 @@ package testsuite_test
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io/fs"
-	"io/ioutil"
 	"os"
-	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,10 +16,9 @@ import (
 
 // This test runner tests the full NestedText test-suite, as proposed in the
 // NestedText test proposal (https://github.com/kenkundert/nestedtext_tests).
-// Current version tested against is 3.1.0
+// Current version tested against is 3.8
 //
-// Decoding-tests are checked via string comparison of the "%#v"-output. This seems
-// to be a stable method. All tests pass.
+// Decoding-tests are checked via deep comparison. All tests pass.
 //
 // Encoding-tests are trickier, as for many structures there are more than one correct
 // NT representations. Moreover, stability of map elements is a challenge: we sort
@@ -28,65 +26,52 @@ import (
 // All in all we are currently not testing encoding-cases to full depth, but in a
 // sufficient manner.
 
-var suitePath = filepath.Join(".", "official_tests", "test_cases")
+var suiteFile = "official_tests/tests.json"
 
-func casePath(c *ntTestCase) string {
-	return filepath.Join(suitePath, c.name)
+// TestSuite represents the v3.8 test suite JSON structure
+type TestSuite struct {
+	LoadTests map[string]LoadTestCase `json:"load_tests"`
+	DumpTests map[string]DumpTestCase `json:"dump_tests"`
 }
 
-func caseFilePath(c *ntTestCase, f string) string {
-	return filepath.Join(casePath(c), f)
+type LoadTestCase struct {
+	LoadIn   string                 `json:"load_in"`   // base64-encoded NestedText input
+	LoadOut  interface{}            `json:"load_out"`  // expected output (can be nil, string, list, or dict)
+	LoadErr  map[string]interface{} `json:"load_err"`  // error details if error expected
+	Encoding string                 `json:"encoding"`  // encoding (usually "utf-8")
+	Types    map[string]int         `json:"types"`     // line type counts
+}
+
+type DumpTestCase struct {
+	DumpIn  interface{}            `json:"dump_in"`  // input data to encode
+	DumpOut string                 `json:"dump_out"` // base64-encoded expected NestedText output
+	DumpErr map[string]interface{} `json:"dump_err"` // error details if error expected
+}
+
+func (tc *LoadTestCase) expectsError() bool {
+	return len(tc.LoadErr) > 0
+}
+
+func (tc *LoadTestCase) decodeInput() ([]byte, error) {
+	return base64.StdEncoding.DecodeString(tc.LoadIn)
+}
+
+func (tc *DumpTestCase) expectsError() bool {
+	return len(tc.DumpErr) > 0
+}
+
+func (tc *DumpTestCase) decodeOutput() ([]byte, error) {
+	return base64.StdEncoding.DecodeString(tc.DumpOut)
 }
 
 type ntTestCase struct {
 	name    string
-	dir     fs.FileInfo
-	files   []fs.FileInfo
-	data    map[string][]byte
-	isLoad  bool
-	isDump  bool
+	load    *LoadTestCase
+	dump    *DumpTestCase
 	status  string
 	statusD string
 	statusE string
 	isFail  bool
-}
-
-func (c ntTestCase) contains(f string) bool {
-	for _, a := range c.files {
-		if a.Name() == f {
-			return true
-		}
-	}
-	return false
-}
-
-func (c *ntTestCase) bytes(f string) []byte {
-	r, err := os.Open(caseFilePath(c, f))
-	if err != nil {
-		return nil
-	}
-	b, err := ioutil.ReadAll(r)
-	r.Close()
-	if err != nil {
-		return nil
-	}
-	return b
-}
-
-func ttype(name string) string {
-	if strings.Contains(name, "string") {
-		return "string"
-	}
-	if strings.Contains(name, "list") {
-		return "list"
-	}
-	if strings.Contains(name, "dict") {
-		return "dict"
-	}
-	if strings.Contains(name, "holistic") {
-		return "dict"
-	}
-	return ""
 }
 
 var skipped = []string{
@@ -103,18 +88,17 @@ func contains(l []string, s string) bool {
 }
 
 func TestAll(t *testing.T) {
-	cases := listTestCases(t)
+	suite := loadTestSuite(t)
+	cases := buildTestCases(suite)
+
 	min, max := 0, len(cases)-1
-	for i, c := range cases[min : max+1] {
-		if strings.HasPrefix(c.name, ".") {
-			cases[min+i].status = "-"
-			continue
-		}
+	for i := range cases[min : max+1] {
+		c := &cases[min+i]
 		if contains(skipped, c.name) {
-			cases[min+i].status = "skipped"
+			c.status = "skipped"
 			continue
 		}
-		runTestCase(&cases[min+i], t)
+		runTestCase(c, t)
 	}
 	failcnt := 0
 	for i, c := range cases[min : max+1] {
@@ -126,149 +110,186 @@ func TestAll(t *testing.T) {
 	t.Logf("%d out of %d tests failed", failcnt, len(cases))
 }
 
-func runTestCase(c *ntTestCase, t *testing.T) {
-	if err := loadTestCase(c, t); err != nil {
-		c.isFail = true
-		t.Errorf("cannot open %q, skipping", c.name)
+func loadTestSuite(t *testing.T) *TestSuite {
+	data, err := os.ReadFile(suiteFile)
+	if err != nil {
+		t.Fatalf("Failed to load test suite: %v", err)
 	}
+
+	var suite TestSuite
+	if err := json.Unmarshal(data, &suite); err != nil {
+		t.Fatalf("Failed to parse test suite JSON: %v", err)
+	}
+
+	return &suite
+}
+
+func buildTestCases(suite *TestSuite) []ntTestCase {
+	// Collect all unique test names
+	names := make(map[string]bool)
+	for name := range suite.LoadTests {
+		names[name] = true
+	}
+	for name := range suite.DumpTests {
+		names[name] = true
+	}
+
+	cases := make([]ntTestCase, 0, len(names))
+	for name := range names {
+		c := ntTestCase{name: name}
+		if load, ok := suite.LoadTests[name]; ok {
+			c.load = &load
+		}
+		if dump, ok := suite.DumpTests[name]; ok {
+			c.dump = &dump
+		}
+		cases = append(cases, c)
+	}
+	return cases
+}
+
+func runTestCase(c *ntTestCase, t *testing.T) {
+	c.status = "loaded"
 	testDecodeCase(c, t)
 	testEncodeCase(c, t)
 }
 
-func loadTestCase(c *ntTestCase, t *testing.T) (err error) {
-	if c.files, err = ioutil.ReadDir(casePath(c)); err != nil {
+func testDecodeCase(c *ntTestCase, t *testing.T) {
+	if c.load == nil {
 		return
 	}
-	c.status = "located"
-	c.data = make(map[string][]byte)
-	//t.Logf("case.name = %q, %d files", c.name, len(c.files))
-	for _, fname := range []string{
-		"load_in.nt", "load_out.json", "load_err.json",
-		"dump_in.json", "dump_out.nt", "dump_err.json",
-	} {
-		if c.contains(fname) {
-			c.data[fname] = c.bytes(fname)
-		}
-	}
-	if _, ok := c.data["load_in.nt"]; ok {
-		c.isLoad = true
-	}
-	if _, ok := c.data["dump_in.json"]; ok {
-		c.isDump = true
-	}
-	c.status = "loaded"
-	return
-}
 
-func testDecodeCase(c *ntTestCase, t *testing.T) {
-	//t.Logf("decoding-test %q", c.name)
-	if c.isLoad {
-		b := c.data["load_in.nt"]
-		nt, err := nestext.Parse(strings.NewReader(string(b)))
-		if err != nil {
-			if c.contains("load_err.json") {
-				c.statusD = "ok"
-				return
-			}
-			c.statusD = err.Error()
+	input, err := c.load.decodeInput()
+	if err != nil {
+		c.statusD = fmt.Sprintf("base64 error: %s", err.Error())
+		c.isFail = true
+		return
+	}
+
+	nt, parseErr := nestext.Parse(strings.NewReader(string(input)))
+
+	if c.load.expectsError() {
+		if parseErr == nil {
+			c.statusD = "expected error"
 			c.isFail = true
 			return
 		}
-		c.statusD = "parsed"
-		if compareOutput(nt, c, t) {
-			c.statusD = "ok"
-		}
+		c.statusD = "ok"
+		return
+	}
+
+	if parseErr != nil {
+		c.statusD = parseErr.Error()
+		c.isFail = true
+		return
+	}
+
+	c.statusD = "parsed"
+	if deepEqual(nt, c.load.LoadOut) {
+		c.statusD = "ok"
+	} else {
+		t.Logf("input:\n%s", string(input))
+		t.Logf("nt   : %#v", nt)
+		t.Logf("json : %#v", c.load.LoadOut)
+		c.statusD = "mismatch"
+		c.isFail = true
 	}
 }
 
 func testEncodeCase(c *ntTestCase, t *testing.T) {
-	//t.Logf("encoding-test %q", c.name)
-	if c.isDump {
-		b := c.data["dump_in.json"]
-		var r interface{}
-		switch ttype(c.name) {
-		case "dict":
-			r = make(map[string]interface{})
-		case "list":
-			r = make([]interface{}, 10)
-		case "string":
-			r = ""
-		}
-		if err := json.Unmarshal(b, &r); err != nil {
-			c.statusE = fmt.Sprintf("error: %s", err.Error())
-			return
-		}
-		buf := &bytes.Buffer{}
-		_, err := ntenc.Encode(r, buf, ntenc.IndentBy(4))
-		if err != nil {
-			if c.contains("dump_err.json") {
-				c.statusE = "ok"
-				return
-			}
-			c.statusE = fmt.Sprintf("error: %s", err.Error())
+	if c.dump == nil {
+		return
+	}
+
+	buf := &bytes.Buffer{}
+	_, err := ntenc.Encode(c.dump.DumpIn, buf, ntenc.IndentBy(4))
+
+	if c.dump.expectsError() {
+		if err == nil {
+			c.statusE = "expected error"
 			c.isFail = true
 			return
 		}
-		c.statusE = "parsed"
-		if compareJson(buf, c, t) {
-			c.statusE = "ok"
-		} else {
-			c.statusE = "?"
-		}
+		c.statusE = "ok"
+		return
 	}
-}
 
-func compareOutput(any interface{}, c *ntTestCase, t *testing.T) bool {
-	nt, ok1 := c.data["load_in.nt"]
-	j, ok2 := c.data["load_out.json"]
-	if !ok1 || !ok2 {
-		return true
-	}
-	var target interface{}
-	err := json.Unmarshal(j, &target)
 	if err != nil {
-		return true
+		c.statusE = fmt.Sprintf("error: %s", err.Error())
+		c.isFail = true
+		return
 	}
-	//fmt.Printf("nt:     %#v\n", any)
-	//fmt.Printf("target: %#v\n", target)
-	r := fmt.Sprintf("%#v", any)
-	o := fmt.Sprintf("%#v", target)
-	if r != o {
-		t.Logf("input:\n%s", nt)
-		t.Logf("nt   : %s", r)
-		t.Logf("json : %s", o)
-		t.Fatalf("output comparison failed!\n--------------------------")
+
+	c.statusE = "encoded"
+
+	expected, decErr := c.dump.decodeOutput()
+	if decErr != nil {
+		c.statusE = fmt.Sprintf("base64 error: %s", decErr.Error())
+		c.isFail = true
+		return
 	}
-	return true
+
+	// Compare output (trim trailing newlines for comparison)
+	n := strings.TrimRight(string(expected), "\n")
+	m := strings.TrimRight(buf.String(), "\n")
+	if n == m {
+		c.statusE = "ok"
+	} else {
+		c.statusE = "?"
+	}
 }
 
-func compareJson(buf *bytes.Buffer, c *ntTestCase, t *testing.T) bool {
-	// kill excessive newlines at end
-	n := strings.TrimRight(string(c.data["dump_out.nt"]), "\n")
-	m := strings.TrimRight(buf.String(), "\n")
-	if n != m {
-		// t.Logf("target NT:\n%q\n\n", n+"\n")
-		// t.Logf("output NT:\n%q\n\n", m+"\n")
-		// b := c.data["dump_in.json"]
-		// t.Logf("input JSON:\n\n%s\n", string(b))
-		// t.Logf("NT output does not match target")
+// deepEqual compares two values for equality, handling the JSON/Go type differences.
+// JSON decodes numbers as float64, but NestedText only produces strings, lists, and maps.
+func deepEqual(got, expected interface{}) bool {
+	if got == nil && expected == nil {
+		return true
+	}
+	if got == nil || expected == nil {
 		return false
 	}
-	return true
-}
 
-func listTestCases(t *testing.T) []ntTestCase {
-	list, err := ioutil.ReadDir(suitePath)
-	if err != nil {
-		t.Fatalf("unable to read test-suite dir")
+	// Handle string comparison
+	gotStr, gotIsStr := got.(string)
+	expStr, expIsStr := expected.(string)
+	if gotIsStr && expIsStr {
+		return gotStr == expStr
 	}
-	t.Logf("%d test cases in NestedText Suite", len(list))
-	cases := make([]ntTestCase, len(list))
-	for i, caseDir := range list {
-		cases[i] = ntTestCase{
-			name: caseDir.Name(),
-			dir:  caseDir,
+
+	// Handle slice comparison
+	gotSlice, gotIsSlice := got.([]interface{})
+	expSlice, expIsSlice := expected.([]interface{})
+	if gotIsSlice && expIsSlice {
+		if len(gotSlice) != len(expSlice) {
+			return false
 		}
+		for i := range gotSlice {
+			if !deepEqual(gotSlice[i], expSlice[i]) {
+				return false
+			}
+		}
+		return true
 	}
-	return cases
+
+	// Handle map comparison
+	gotMap, gotIsMap := got.(map[string]interface{})
+	expMap, expIsMap := expected.(map[string]interface{})
+	if gotIsMap && expIsMap {
+		if len(gotMap) != len(expMap) {
+			return false
+		}
+		for k, v := range gotMap {
+			expV, ok := expMap[k]
+			if !ok {
+				return false
+			}
+			if !deepEqual(v, expV) {
+				return false
+			}
+		}
+		return true
+	}
+
+	// Fallback to reflect.DeepEqual for other cases
+	return reflect.DeepEqual(got, expected)
 }

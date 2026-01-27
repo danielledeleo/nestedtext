@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"unicode"
 )
 
 // TODO: set new ScanLines function which will break on 'CR' without following 'LF' (see spec)
@@ -62,6 +63,11 @@ func (sc *scanner) NextToken() *parserToken {
 		token.TokenType = eof
 		return token
 	}
+	// Check for errors from previous operations (e.g., UTF-8 validation)
+	if sc.Buf.LastError != nil {
+		token.Error = sc.Buf.LastError
+		return token
+	}
 	if sc.Step == nil {
 		sc.Step = sc.ScanItem
 	}
@@ -107,20 +113,44 @@ func (sc *scanner) ScanFileStart(token *parserToken) (*parserToken, scannerStep)
 }
 
 // StepItem is a step function to start recognizing a line-level item.
+// Checks for invalid whitespace (tabs, Unicode whitespace) at the start of a line.
 func (sc *scanner) ScanItem(token *parserToken) (*parserToken, scannerStep) {
 	//fmt.Println("---> ScanItem")
 	if sc.Buf.Lookahead == ' ' {
 		return token, sc.ScanIndentation
 	}
+	// Check for invalid whitespace at start of line (tabs or Unicode whitespace)
+	if sc.Buf.Lookahead == '\t' {
+		token.Error = makeParsingError(token, ErrCodeFormat,
+			"invalid character in indentation: tab")
+		return token, nil
+	}
+	if unicode.IsSpace(sc.Buf.Lookahead) && sc.Buf.Lookahead != '\n' {
+		token.Error = makeParsingError(token, ErrCodeFormat,
+			fmt.Sprintf("invalid character in indentation: %#U", sc.Buf.Lookahead))
+		return token, nil
+	}
 	return token, sc.ScanItemBody
 }
 
 // ScanIndentation is a step function to recognize the indentation part of an item.
+// Only ASCII spaces are allowed in indentation (no tabs or Unicode whitespace).
 func (sc *scanner) ScanIndentation(token *parserToken) (*parserToken, scannerStep) {
 	if sc.Buf.Lookahead == ' ' {
 		sc.Buf.match(singleRune(' '))
 		token.Indent++
 		return token, sc.ScanIndentation
+	}
+	// Check for invalid indentation characters (tabs or Unicode whitespace)
+	if sc.Buf.Lookahead == '\t' {
+		token.Error = makeParsingError(token, ErrCodeFormat,
+			"invalid character in indentation: tab")
+		return token, nil
+	}
+	if unicode.IsSpace(sc.Buf.Lookahead) && sc.Buf.Lookahead != '\n' {
+		token.Error = makeParsingError(token, ErrCodeFormat,
+			fmt.Sprintf("invalid character in indentation: %#U", sc.Buf.Lookahead))
+		return token, nil
 	}
 	return token, sc.ScanItemBody
 }

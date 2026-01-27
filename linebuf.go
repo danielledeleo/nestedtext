@@ -6,6 +6,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // lineBuffer is an abstraction of a NestedText document source.
@@ -54,6 +55,11 @@ func newLineBuffer(inputDoc io.Reader) *lineBuffer {
 	if err != errAtEof {
 		buf.LastError = err
 	}
+	// Strip BOM (Byte Order Mark) at start of document if present
+	// BOM is U+FEFF
+	if buf.Lookahead == '\uFEFF' {
+		buf.AdvanceCursor()
+	}
 	return buf
 }
 
@@ -84,6 +90,10 @@ func (buf *lineBuffer) readRune() (rune, error) {
 	r, runeLen, readerErr := buf.Line.ReadRune()
 	if readerErr != nil {
 		return 0, WrapError(ErrCodeIO, "I/O error while reading input character", readerErr)
+	}
+	// Check for invalid UTF-8: ReadRune returns RuneError with width 1 for invalid bytes
+	if r == utf8.RuneError && runeLen == 1 {
+		return 0, MakeNestedTextError(ErrCodeFormat, "invalid UTF-8 byte sequence")
 	}
 	buf.ByteCursor += int64(runeLen)
 	buf.Cursor++
@@ -124,13 +134,16 @@ func (buf *lineBuffer) AdvanceLine() error {
 			return errAtEof
 		}
 		buf.Text = buf.Input.Text()
+		buf.Line = strings.NewReader(buf.Text) // Set Line early to prevent nil pointer issues
 		//fmt.Printf("===> %q\n", buf.Text)
+		// Validate UTF-8
+		if !utf8.ValidString(buf.Text) {
+			return MakeNestedTextError(ErrCodeFormat, "invalid UTF-8 byte sequence")
+		}
 		if !buf.IsIgnoredLine() {
-			buf.Line = strings.NewReader(buf.Text)
 			break
 		}
 	}
-	buf.Line = strings.NewReader(buf.Text)
 	return buf.AdvanceCursor()
 }
 
@@ -157,7 +170,11 @@ func (buf *lineBuffer) ReadLineRemainder() string {
 	var s string
 	if buf.IsEof() {
 		s = ""
+	} else if buf.Lookahead == eolMarker {
+		// At end of line (value is empty), return empty string
+		s = ""
 	} else if buf.ByteCursor == buf.Line.Size() {
+		// At last character, return just that character
 		s = string(buf.Lookahead)
 	} else if buf.ByteCursor > buf.Line.Size() {
 		s = ""

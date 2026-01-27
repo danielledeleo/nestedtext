@@ -24,11 +24,11 @@ func TestParserUsageError(t *testing.T) {
 func TestParserStack(t *testing.T) {
 	p := newParser()
 	p.pushNonterm(false)
-	if ok := p.stack.pushKV(nil, "one"); !ok {
-		t.Fatal("pushing a value onto the stack failed")
+	if err := p.stack.pushKV(nil, "one"); err != nil {
+		t.Fatalf("pushing a value onto the stack failed: %v", err)
 	}
 	two := "2"
-	if ok := p.stack.pushKV(&two, "two"); ok {
+	if err := p.stack.pushKV(&two, "two"); err == nil {
 		t.Fatal("pushing a key onto the stack should fail, didn't")
 	}
 }

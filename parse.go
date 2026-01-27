@@ -191,7 +191,9 @@ func (p *nestedTextParser) parseListItems(indent int) (result interface{}, err e
 			value, err = p.parseListItemMultiline(indent)
 		}
 		if value != nil && err == nil {
-			p.stack.pushKV(nil, value)
+			if pushErr := p.stack.pushKV(nil, value); pushErr != nil {
+				return nil, pushErr
+			}
 		} else if err != nil {
 			return
 		} else if value == nil {
@@ -271,7 +273,9 @@ func (p *nestedTextParser) parseDictKeyValuePairs(indent int) (result interface{
 			if err != nil {
 				return
 			}
-			p.stack.pushKV(kv.key, kv.value)
+			if pushErr := p.stack.pushKV(kv.key, kv.value); pushErr != nil {
+				return nil, pushErr
+			}
 		} else {
 			break
 		}
@@ -333,8 +337,10 @@ func (p *nestedTextParser) parseDictKeyValuePairWithMultilineKey(indent int) (kv
 	}
 	key := builder.String()
 	kv.key = &key
+	// Multiline key MUST be followed by an indented value
 	if p.token.Indent <= indent {
-		return keyValuePair{key: &key, value: ""}, nil
+		return kv, MakeNestedTextError(ErrCodeFormat,
+			"multiline key requires a value")
 	}
 	kv.value, err = p.parseAny(p.token.Indent)
 	return
@@ -473,7 +479,11 @@ func (p *inlineItemParser) parse(initial inlineParserState, input string) (resul
 			state = p.stack.tos().NontermState
 			p.stack.pop()
 			if len(p.stack) > 0 {
-				p.stack.pushKV(p.stack.tos().Key, result)
+				if pushErr := p.stack.pushKV(p.stack.tos().Key, result); pushErr != nil {
+					p.stack.tos().Error = pushErr
+					state = e
+					break
+				}
 			}
 		}
 		p.TextPosition += w
@@ -482,6 +492,15 @@ func (p *inlineItemParser) parse(initial inlineParserState, input string) (resul
 		if err = p.stack[len(p.stack)-1].Error; err == nil {
 			t := parserToken{ColNo: p.TextPosition, LineNo: p.LineNo}
 			err = makeParsingError(&t, ErrCodeFormat, "format error")
+		}
+	}
+	// Check for trailing content after the inline item
+	if err == nil && len(p.stack) == 0 {
+		remainder := strings.TrimSpace(p.Text[p.TextPosition:])
+		if len(remainder) > 0 {
+			t := parserToken{ColNo: p.TextPosition, LineNo: p.LineNo}
+			err = makeParsingError(&t, ErrCodeFormat,
+				fmt.Sprintf("extra characters after closing delimiter: %q", remainder))
 		}
 	}
 	return
@@ -588,7 +607,10 @@ var inlineStateMachineActions = [...]func(p *inlineItemParser,
 	func(p *inlineItemParser, from, to inlineParserState, ch rune, w int) bool { // 6
 		if from != 6 {
 			if p.Marker > 0 && !isGhost(from) {
-				p.appendStringValue(false)
+				if err := p.appendStringValue(false); err != nil {
+					p.stack.tos().Error = err
+					return false
+				}
 			}
 			p.stack.tos().Key = nil
 			p.Marker = p.TextPosition + w // get ready for next key
@@ -597,7 +619,10 @@ var inlineStateMachineActions = [...]func(p *inlineItemParser,
 	},
 	func(p *inlineItemParser, from, to inlineParserState, ch rune, w int) bool { // 7
 		if ch == ',' && p.Marker > 0 && !isGhost(from) {
-			p.appendStringValue(false)
+			if err := p.appendStringValue(false); err != nil {
+				p.stack.tos().Error = err
+				return false
+			}
 		}
 		p.Marker = p.TextPosition + w // get ready for next item
 		return true
@@ -621,7 +646,7 @@ var inlineStateMachineActions = [...]func(p *inlineItemParser,
 	accept, // A2
 }
 
-func (p *inlineItemParser) appendStringValue(isAccept bool) {
+func (p *inlineItemParser) appendStringValue(isAccept bool) error {
 	value := p.Text[p.Marker:p.TextPosition]
 	// From the spec:
 	// Both inline lists and dictionaries may be empty, and represent the only way to
@@ -636,11 +661,12 @@ func (p *inlineItemParser) appendStringValue(isAccept bool) {
 	// and [,] a list with two empty string values.
 	if p.stack.tos().Key != nil {
 		value = strings.TrimSpace(value)
-		p.stack.pushKV(p.stack.tos().Key, value)
+		return p.stack.pushKV(p.stack.tos().Key, value)
 	} else if !isAccept || len(value) > 0 || len(p.stack.tos().Values) > 0 {
 		value = strings.TrimSpace(value)
-		p.stack.pushKV(p.stack.tos().Key, value)
+		return p.stack.pushKV(p.stack.tos().Key, value)
 	}
+	return nil
 }
 
 // nop is a no-op state machine action.
@@ -650,7 +676,10 @@ func nop(p *inlineItemParser, from, to inlineParserState, ch rune, w int) bool {
 
 func accept(p *inlineItemParser, from, to inlineParserState, ch rune, w int) bool {
 	if p.Marker > 0 && !isGhost(from) {
-		p.appendStringValue(true)
+		if err := p.appendStringValue(true); err != nil {
+			p.stack.tos().Error = err
+			return false
+		}
 	}
 	return true
 }
@@ -690,7 +719,8 @@ func (s *pstack) push(e *parserStackEntry) (tos *parserStackEntry) {
 // pushKV will push a value and an option key onto the stack by appending it to the
 // top-most stack entry.
 // The containing stack-entry has to be provided by a non-term (pushNonterm).
-func (s *pstack) pushKV(str *string, val interface{}) bool {
+// Returns an error if a duplicate key is detected.
+func (s *pstack) pushKV(str *string, val interface{}) error {
 	// if val != nil && str != nil {
 	// 	fmt.Printf("# push( %s, %#v )\n", *str, val)
 	// } else if val != nil {
@@ -700,15 +730,21 @@ func (s *pstack) pushKV(str *string, val interface{}) bool {
 		panic("use of un-initialized parser stack")
 	}
 	tos := &(*s)[len(*s)-1]
-	tos.Values = append(tos.Values, val)
 	if str != nil {
 		if tos.Keys == nil {
 			//panic("top-most stack entry should not contain keys")
-			return false
+			return MakeNestedTextError(ErrCodeFormat, "unexpected key in non-dict context")
+		}
+		// Check for duplicate key
+		for _, k := range tos.Keys {
+			if k == *str {
+				return MakeNestedTextError(ErrCodeFormat, fmt.Sprintf("duplicate key: %s", *str))
+			}
 		}
 		tos.Keys = append(tos.Keys, *str)
 	}
-	return true
+	tos.Values = append(tos.Values, val)
+	return nil
 }
 
 // The parser manages a stack, with a stack entry for every non-terminal. The bottom
