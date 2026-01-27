@@ -60,6 +60,7 @@ func Marshal(v interface{}, opts ...EncodeOption) ([]byte, error) {
 // Encoder writes NestedText values to an output stream.
 type Encoder struct {
 	w           io.Writer
+	opts        []EncodeOption
 	indentSize  int
 	inlineLimit int
 	minimalMode bool
@@ -67,16 +68,17 @@ type Encoder struct {
 
 // EncodeOption configures the behavior of the encoding process.
 // Multiple options may be passed to Marshal or NewEncoder.
-type EncodeOption func(*Encoder)
+type EncodeOption func(*Encoder) error
 
 // WithIndent returns an option that sets the number of spaces per indentation level.
 // The default is 2. Values less than 1 are treated as 1.
 func WithIndent(n int) EncodeOption {
-	return func(enc *Encoder) {
+	return func(enc *Encoder) error {
 		if n < 1 {
 			n = 1
 		}
 		enc.indentSize = n
+		return nil
 	}
 }
 
@@ -88,11 +90,12 @@ func WithIndent(n int) EncodeOption {
 //
 // The default is 128.
 func WithFlowWidth(width int) EncodeOption {
-	return func(enc *Encoder) {
+	return func(enc *Encoder) error {
 		if width < 0 {
 			width = 0
 		}
 		enc.inlineLimit = width
+		return nil
 	}
 }
 
@@ -107,50 +110,31 @@ func WithFlowWidth(width int) EncodeOption {
 // This produces output conforming to the Minimal NestedText subset as defined at
 // https://nestedtext.org/en/latest/minimal-nestedtext.html
 func WithMinimal() EncodeOption {
-	return func(enc *Encoder) {
+	return func(enc *Encoder) error {
 		enc.minimalMode = true
 		enc.inlineLimit = 0
+		return nil
 	}
 }
 
 // NewEncoder returns a new encoder that writes to w.
 func NewEncoder(w io.Writer, opts ...EncodeOption) *Encoder {
-	enc := &Encoder{
+	return &Encoder{
 		w:           w,
+		opts:        opts,
 		indentSize:  2,
 		inlineLimit: defaultInlineLimit,
 	}
-	for _, opt := range opts {
-		opt(enc)
-	}
-	return enc
-}
-
-// SetIndent sets the number of spaces per indentation level.
-// The default is 2. Values less than 1 are treated as 1.
-func (enc *Encoder) SetIndent(n int) {
-	if n < 1 {
-		n = 1
-	}
-	enc.indentSize = n
-}
-
-// SetFlowWidth sets the maximum width for inline (flow-style) lists and dicts.
-// If the inline representation of a list or dict exceeds this width, it will
-// be rendered in block style (multi-line) instead.
-//
-// Set to 0 to disable inline rendering entirely.
-//
-// The default is 128.
-func (enc *Encoder) SetFlowWidth(width int) {
-	if width < 0 {
-		width = 0
-	}
-	enc.inlineLimit = width
 }
 
 // Encode writes the NestedText encoding of v to the stream.
 func (enc *Encoder) Encode(v interface{}) error {
+	// Apply options to configure the encoder
+	for _, opt := range enc.opts {
+		if err := opt(enc); err != nil {
+			return err
+		}
+	}
 	_, err := enc.encode(0, v, 0, nil)
 	return err
 }

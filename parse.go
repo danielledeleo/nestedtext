@@ -14,12 +14,20 @@ import (
 //
 // If a non-nil error is returned, it will be of type NestedTextError.
 func Parse(r io.Reader, opts ...DecodeOption) (interface{}, error) {
-	p := parse.NewParser(makeFormatError, wrapIOError, makeParsingError, ErrCodeFormat)
+	// Apply options to a temporary decoder to extract configuration
+	d := &Decoder{}
 	for _, opt := range opts {
-		if err := opt(p); err != nil {
+		if err := opt(d); err != nil {
 			return nil, err
 		}
 	}
+	return parseWithConfig(r, d.minimalMode)
+}
+
+// parseWithConfig is the internal parsing function that accepts configuration directly.
+func parseWithConfig(r io.Reader, minimalMode bool) (interface{}, error) {
+	p := parse.NewParser(makeFormatError, wrapIOError, makeParsingError, ErrCodeFormat)
+	p.MinimalMode = minimalMode
 	return p.Parse(r, makeFormatError, wrapIOError, ErrCodeFormatNoInput)
 }
 
@@ -27,7 +35,7 @@ func Parse(r io.Reader, opts ...DecodeOption) (interface{}, error) {
 
 // DecodeOption configures the behavior of the parsing/decoding process.
 // Multiple options may be passed to Parse, Unmarshal, or NewDecoder.
-type DecodeOption func(*parse.Parser) error
+type DecodeOption func(*Decoder) error
 
 // Minimal returns a DecodeOption that enables Minimal NestedText mode.
 // In Minimal mode, the parser rejects:
@@ -38,8 +46,8 @@ type DecodeOption func(*parse.Parser) error
 // This enforces the Minimal NestedText subset as defined at
 // https://nestedtext.org/en/latest/minimal-nestedtext.html
 func Minimal() DecodeOption {
-	return func(p *parse.Parser) error {
-		p.MinimalMode = true
+	return func(d *Decoder) error {
+		d.minimalMode = true
 		return nil
 	}
 }

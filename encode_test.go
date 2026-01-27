@@ -7,9 +7,7 @@ import (
 
 func TestEncoderOptions(t *testing.T) {
 	var buf strings.Builder
-	enc := NewEncoder(&buf)
-	enc.SetIndent(5)
-	enc.SetFlowWidth(80)
+	enc := NewEncoder(&buf, WithIndent(5), WithFlowWidth(80))
 	err := enc.Encode("X")
 	if err != nil {
 		t.Error(err)
@@ -190,8 +188,7 @@ port: 8080
 
 func TestEncoder(t *testing.T) {
 	var buf strings.Builder
-	enc := NewEncoder(&buf)
-	enc.SetIndent(4)
+	enc := NewEncoder(&buf, WithIndent(4))
 
 	data := map[string]interface{}{
 		"key": map[string]string{"nested": "value"},

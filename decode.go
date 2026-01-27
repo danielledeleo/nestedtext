@@ -31,8 +31,9 @@ func Unmarshal(data []byte, v interface{}, opts ...DecodeOption) error {
 
 // Decoder reads and decodes NestedText values from an input stream.
 type Decoder struct {
-	r    io.Reader
-	opts []DecodeOption
+	r           io.Reader
+	opts        []DecodeOption
+	minimalMode bool
 }
 
 // NewDecoder returns a new decoder that reads from r.
@@ -47,7 +48,14 @@ func (d *Decoder) Decode(v interface{}) error {
 		return makeNestedTextError(ErrCodeUnmarshal, "Decode requires non-nil pointer argument")
 	}
 
-	parsed, err := Parse(d.r, d.opts...)
+	// Apply options to configure the decoder
+	for _, opt := range d.opts {
+		if err := opt(d); err != nil {
+			return err
+		}
+	}
+
+	parsed, err := parseWithConfig(d.r, d.minimalMode)
 	if err != nil {
 		return err
 	}

@@ -201,8 +201,7 @@ func testEncodeCase(c *ntTestCase, t *testing.T) {
 	}
 
 	buf := &bytes.Buffer{}
-	enc := nestedtext.NewEncoder(buf)
-	enc.SetIndent(4)
+	enc := nestedtext.NewEncoder(buf, nestedtext.WithIndent(4))
 	err := enc.Encode(c.dump.DumpIn)
 
 	if c.dump.expectsError() {
