@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/npillmayer/nestext"
-	"github.com/npillmayer/nestext/ntenc"
 )
 
 // This test runner tests the full NestedText test-suite, as proposed in the
@@ -202,7 +201,7 @@ func testEncodeCase(c *ntTestCase, t *testing.T) {
 	}
 
 	buf := &bytes.Buffer{}
-	_, err := ntenc.Encode(c.dump.DumpIn, buf, ntenc.IndentBy(4))
+	_, err := nestext.Encode(c.dump.DumpIn, buf, nestext.IndentBy(4))
 
 	if c.dump.expectsError() {
 		if err == nil {

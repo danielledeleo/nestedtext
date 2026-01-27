@@ -1,13 +1,29 @@
-package nestext
+package parse
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
 
+// Error helpers for tests
+func testFormatError(msg string) error {
+	return fmt.Errorf("format: %s", msg)
+}
+
+func testIOError(msg string, err error) error {
+	return fmt.Errorf("io: %s: %w", msg, err)
+}
+
+func testParsingError(token *Token, code int, msg string) error {
+	return fmt.Errorf("[%d,%d] %s", token.LineNo, token.ColNo, msg)
+}
+
+const testErrCodeFormat = 200
+
 func TestLineBufferSplitter(t *testing.T) {
 	inputDoc := strings.NewReader("Hello\nWorld\r?!\n")
-	buf := newLineBuffer(inputDoc)
+	buf := NewLineBuffer(inputDoc, testFormatError, testIOError)
 	buf.AdvanceCursor()
 	r := buf.ReadLineRemainder()
 	t.Logf("line: %q\n", r)
@@ -30,7 +46,7 @@ func TestLineBufferSplitter(t *testing.T) {
 
 func TestLineBufferRemainder(t *testing.T) {
 	inputDoc := strings.NewReader("Hello World\nHow are you?")
-	buf := newLineBuffer(inputDoc)
+	buf := NewLineBuffer(inputDoc, testFormatError, testIOError)
 	for i := 0; i < 6; i++ {
 		buf.AdvanceCursor()
 	}
@@ -46,9 +62,32 @@ func TestLineBufferRemainder(t *testing.T) {
 	}
 }
 
+func TestLineBufferAnyRuneOf(t *testing.T) {
+	inputDoc := strings.NewReader("abc123")
+	buf := NewLineBuffer(inputDoc, testFormatError, testIOError)
+
+	// Test matching 'a'
+	if !buf.Match(AnyRuneOf('a', 'b', 'c')) {
+		t.Errorf("expected to match 'a' with AnyRuneOf('a', 'b', 'c')")
+	}
+
+	// Advance and test again
+	buf.AdvanceCursor()
+	if !buf.Match(AnyRuneOf('a', 'b', 'c')) {
+		t.Errorf("expected to match 'b' with AnyRuneOf('a', 'b', 'c')")
+	}
+
+	// Test non-matching
+	buf.AdvanceCursor()
+	buf.AdvanceCursor()
+	if buf.Match(AnyRuneOf('a', 'b', 'c')) {
+		t.Errorf("expected '1' to not match AnyRuneOf('a', 'b', 'c')")
+	}
+}
+
 func TestScannerCreate(t *testing.T) {
 	r := strings.NewReader("")
-	_, err := newScanner(r)
+	_, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +95,7 @@ func TestScannerCreate(t *testing.T) {
 
 func TestScannerStart(t *testing.T) {
 	r := strings.NewReader("# This is a comment to skip\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +106,7 @@ func TestScannerStart(t *testing.T) {
 
 func TestScannerTopLevelIndent(t *testing.T) {
 	r := strings.NewReader("# This is a comment\n   debug: false\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,11 +118,11 @@ func TestScannerTopLevelIndent(t *testing.T) {
 
 func TestScannerUTF8(t *testing.T) {
 	r := strings.NewReader("$€¥£₩₺₽₹ɃΞȄ: $€¥£₩₺₽₹ɃΞȄ")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var token *parserToken
+	var token *Token
 	_ = sc.NextToken() // doc root
 	token = sc.NextToken()
 	logToken(token, t)
@@ -94,11 +133,11 @@ func TestScannerUTF8(t *testing.T) {
 
 func TestScannerTerminate(t *testing.T) {
 	r := strings.NewReader("> This is a string\n> and this too\n?    ")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var token *parserToken
+	var token *Token
 	token = sc.NextToken()
 	logToken(token, t)
 	token = sc.NextToken()
@@ -113,7 +152,7 @@ func TestScannerTerminate(t *testing.T) {
 
 func TestScannerListItem(t *testing.T) {
 	r := strings.NewReader("# This is a comment\n- debug\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,8 +162,8 @@ func TestScannerListItem(t *testing.T) {
 	}
 	tok = sc.NextToken()
 	t.Logf("token = %v", tok)
-	if tok.TokenType != listItem {
-		t.Errorf("item expected to be of type list item; is: %s", tok.TokenType)
+	if tok.TokenType != ListItem {
+		t.Errorf("item expected to be of type list item; is: %d", tok.TokenType)
 	}
 	if tok.Content[0] != "debug" {
 		t.Errorf("item expected to have value 'debug'; is: %s", tok.Content)
@@ -133,7 +172,7 @@ func TestScannerListItem(t *testing.T) {
 
 func TestScannerListItemIllegal(t *testing.T) {
 	r := strings.NewReader("# This is a comment\n-debug\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +188,7 @@ func TestScannerListItemIllegal(t *testing.T) {
 
 func TestScannerLongListItem(t *testing.T) {
 	r := strings.NewReader("# This is a comment\n-\n > debug\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -159,60 +198,60 @@ func TestScannerLongListItem(t *testing.T) {
 	}
 	tok = sc.NextToken()
 	logToken(tok, t)
-	if tok.TokenType != listItemMultiline {
-		t.Errorf("item expected to be of type multiline list item; is: %s", tok.TokenType)
+	if tok.TokenType != ListItemMultiline {
+		t.Errorf("item expected to be of type multiline list item; is: %d", tok.TokenType)
 	}
 }
 
 func TestScannerMultilineString(t *testing.T) {
 	r := strings.NewReader("> Hello\n> World!\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sc.NextToken()        // doc root
 	tok := sc.NextToken() // string
 	logToken(tok, t)
-	if tok.TokenType != stringMultiline {
-		t.Errorf("item expected to be of type multiline string; is: %s", tok.TokenType)
+	if tok.TokenType != StringMultiline {
+		t.Errorf("item expected to be of type multiline string; is: %d", tok.TokenType)
 	}
 	tok = sc.NextToken() // string
 	logToken(tok, t)
-	if tok.TokenType != stringMultiline {
-		t.Errorf("item expected to be of type multiline string; is: %s", tok.TokenType)
+	if tok.TokenType != StringMultiline {
+		t.Errorf("item expected to be of type multiline string; is: %d", tok.TokenType)
 	}
 }
 
 func TestScannerMultilineKey(t *testing.T) {
 	r := strings.NewReader(": Hello\n  : Key\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sc.NextToken()        // doc root
 	tok := sc.NextToken() // key
 	logToken(tok, t)
-	if tok.TokenType != dictKeyMultiline {
-		t.Errorf("item expected to be of type multiline key; is: %s", tok.TokenType)
+	if tok.TokenType != DictKeyMultiline {
+		t.Errorf("item expected to be of type multiline key; is: %d", tok.TokenType)
 	}
 	tok = sc.NextToken() // key
 	logToken(tok, t)
-	if tok.TokenType != dictKeyMultiline {
-		t.Errorf("item expected to be of type multiline key; is: %s", tok.TokenType)
+	if tok.TokenType != DictKeyMultiline {
+		t.Errorf("item expected to be of type multiline key; is: %d", tok.TokenType)
 	}
 }
 
 func TestScannerInlineError(t *testing.T) {
 	r := strings.NewReader("[ hello, world }")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sc.NextToken()        // doc root
 	tok := sc.NextToken() // inline list with errors
 	logToken(tok, t)
-	if tok.TokenType != inlineList {
-		t.Errorf("item expected to be of type inline list; is: %s", tok.TokenType)
+	if tok.TokenType != InlineList {
+		t.Errorf("item expected to be of type inline list; is: %d", tok.TokenType)
 	}
 	if tok.Error == nil {
 		t.Errorf("expected inline item to carry an error, doesn't")
@@ -221,21 +260,21 @@ func TestScannerInlineError(t *testing.T) {
 
 func TestScannerInlineDictKeyValue(t *testing.T) {
 	r := strings.NewReader("Hello  : World!\n")
-	sc, err := newScanner(r)
+	sc, err := NewScanner(r, testFormatError, testIOError, testParsingError, testErrCodeFormat, testErrCodeFormat+1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	sc.NextToken()        // doc root
 	tok := sc.NextToken() // dict key-value pair
 	logToken(tok, t)
-	if tok.TokenType != inlineDictKeyValue {
-		t.Errorf("item expected to be of type inline key-value; is: %s", tok.TokenType)
+	if tok.TokenType != InlineDictKeyValue {
+		t.Errorf("item expected to be of type inline key-value; is: %d", tok.TokenType)
 	}
 }
 
 // ---------------------------------------------------------------------------
 
-func logToken(token *parserToken, t *testing.T) {
+func logToken(token *Token, t *testing.T) {
 	t.Logf("token = %v", token)
 	if token.Error != nil {
 		t.Logf("      + error:  %v", token.Error)

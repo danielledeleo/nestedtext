@@ -1,4 +1,4 @@
-package nestext
+package parse
 
 import (
 	"bufio"
@@ -9,9 +9,9 @@ import (
 	"unicode/utf8"
 )
 
-// lineBuffer is an abstraction of a NestedText document source.
-// The scanner will use a lineBuffer for input.
-type lineBuffer struct {
+// LineBuffer is an abstraction of a NestedText document source.
+// The scanner will use a LineBuffer for input.
+type LineBuffer struct {
 	Lookahead   rune            // the next UTF-8 character
 	Cursor      int64           // position of lookahead in character count
 	ByteCursor  int64           // position of lookahead in byte count
@@ -21,13 +21,17 @@ type lineBuffer struct {
 	Line        *strings.Reader // reader on Text
 	isEof       int             // is this buffer done reading? May be 0, 1 or 2.
 	LastError   error           // last error, if any (except EOF errors)
+
+	// Error creation functions - set by the main package
+	MakeFormatError func(msg string) error
+	WrapIOError     func(msg string, err error) error
 }
 
-const eolMarker = '\n'
+const EOLMarker = '\n'
 
-var errAtEof error = errors.New("EOF")
+var ErrAtEof = errors.New("EOF")
 
-func newLineBuffer(inputDoc io.Reader) *lineBuffer {
+func NewLineBuffer(inputDoc io.Reader, makeFormatError func(string) error, wrapIOError func(string, error) error) *LineBuffer {
 	input := bufio.NewScanner(inputDoc)
 	// From the spec:
 	// Line breaks: A NestedText document is partitioned into lines where the lines are split by
@@ -50,9 +54,13 @@ func newLineBuffer(inputDoc io.Reader) *lineBuffer {
 		return
 	}
 	input.Split(split)
-	buf := &lineBuffer{Input: input}
+	buf := &LineBuffer{
+		Input:           input,
+		MakeFormatError: makeFormatError,
+		WrapIOError:     wrapIOError,
+	}
 	err := buf.AdvanceLine()
-	if err != errAtEof {
+	if err != ErrAtEof {
 		buf.LastError = err
 	}
 	// Strip BOM (Byte Order Mark) at start of document if present
@@ -63,19 +71,19 @@ func newLineBuffer(inputDoc io.Reader) *lineBuffer {
 	return buf
 }
 
-func (buf *lineBuffer) IsEof() bool {
+func (buf *LineBuffer) IsEof() bool {
 	return buf.isEof >= 2 || buf.Line.Size() == 0
 }
 
 // AdvanceCursor moves the rune cursor within the current line one character forward.
-// If the cursor is already at the end of the line, `eolMarker` is returned. No moving to
+// If the cursor is already at the end of the line, `EOLMarker` is returned. No moving to
 // the next line is performed.
-func (buf *lineBuffer) AdvanceCursor() error {
+func (buf *LineBuffer) AdvanceCursor() error {
 	if buf.isEof > 2 {
-		return errAtEof
+		return ErrAtEof
 	}
-	if buf.ByteCursor >= buf.Line.Size() { // at end of line, set lookahead to eolMarker
-		buf.Lookahead = eolMarker
+	if buf.ByteCursor >= buf.Line.Size() { // at end of line, set lookahead to EOLMarker
+		buf.Lookahead = EOLMarker
 	} else {
 		r, err := buf.readRune()
 		if err != nil {
@@ -86,59 +94,52 @@ func (buf *lineBuffer) AdvanceCursor() error {
 	return nil
 }
 
-func (buf *lineBuffer) readRune() (rune, error) {
+func (buf *LineBuffer) readRune() (rune, error) {
 	r, runeLen, readerErr := buf.Line.ReadRune()
 	if readerErr != nil {
-		return 0, WrapError(ErrCodeIO, "I/O error while reading input character", readerErr)
+		return 0, buf.WrapIOError("I/O error while reading input character", readerErr)
 	}
 	// Check for invalid UTF-8: ReadRune returns RuneError with width 1 for invalid bytes
 	if r == utf8.RuneError && runeLen == 1 {
-		return 0, MakeNestedTextError(ErrCodeFormat, "invalid UTF-8 byte sequence")
+		return 0, buf.MakeFormatError("invalid UTF-8 byte sequence")
 	}
 	buf.ByteCursor += int64(runeLen)
 	buf.Cursor++
 	return r, nil
 }
 
-// AdvanceLine will advance the input buffer to the next line. Will return atEof if EOF has been
+// AdvanceLine will advance the input buffer to the next line. Will return ErrAtEof if EOF has been
 // encountered.
 //
 // Blank lines and comment lines are skipped. This may be a somewhat questionable decision in terms
 // of separation of concerns, as empty lines and comments are artifacts for which the scanner should
-// take care of. However, it makes implemeting the scanner rules much more convenient
+// take care of. However, it makes implementing the scanner rules much more convenient
 //
 // Lookahead will be set to first rune (UFT-8 character) of the resulting current line.
 // Line-count and cursor are updated.
-//
-func (buf *lineBuffer) AdvanceLine() error {
-	//fmt.Printf("===> advance line..")
+func (buf *LineBuffer) AdvanceLine() error {
 	buf.Cursor = 0
 	buf.ByteCursor = 0
 	// iterate over the lines of the input document until valid line found or EOF
 	if buf.isEof == 1 {
 		buf.isEof = 2
-		//fmt.Printf("..1->2")
-		return errAtEof
+		return ErrAtEof
 	}
-	//fmt.Printf("..ok\n")
 	for buf.isEof == 0 {
 		buf.CurrentLine++
-		//fmt.Printf("===> reading line #%d\n", buf.CurrentLine)
 		if !buf.Input.Scan() { // could not read a new line: either I/O-error or EOF
 			if err := buf.Input.Err(); err != nil {
-				return WrapError(ErrCodeIO, "I/O error while reading input", err)
+				return buf.WrapIOError("I/O error while reading input", err)
 			}
-			//fmt.Println("===> EOF !")
 			buf.isEof = 1
 			buf.Line = strings.NewReader("")
-			return errAtEof
+			return ErrAtEof
 		}
 		buf.Text = buf.Input.Text()
 		buf.Line = strings.NewReader(buf.Text) // Set Line early to prevent nil pointer issues
-		//fmt.Printf("===> %q\n", buf.Text)
 		// Validate UTF-8
 		if !utf8.ValidString(buf.Text) {
-			return MakeNestedTextError(ErrCodeFormat, "invalid UTF-8 byte sequence")
+			return buf.MakeFormatError("invalid UTF-8 byte sequence")
 		}
 		if !buf.IsIgnoredLine() {
 			break
@@ -153,7 +154,7 @@ var commentPattern *regexp.Regexp
 // IsIgnoredLine is a predicate for the current line of input. From the spec:
 // Blank lines are lines that are empty or consist only of white space characters (spaces or tabs).
 // Comments are lines that have # as the first non-white-space character on the line.
-func (buf *lineBuffer) IsIgnoredLine() bool {
+func (buf *LineBuffer) IsIgnoredLine() bool {
 	if blankPattern == nil {
 		blankPattern = regexp.MustCompile(`^\s*$`)
 		commentPattern = regexp.MustCompile(`^\s*#`)
@@ -164,13 +165,13 @@ func (buf *lineBuffer) IsIgnoredLine() bool {
 	return false
 }
 
-// ReadRemainder returns the remainder of the current line of input text.
+// ReadLineRemainder returns the remainder of the current line of input text.
 // This is a frequent operation for NestedText items.
-func (buf *lineBuffer) ReadLineRemainder() string {
+func (buf *LineBuffer) ReadLineRemainder() string {
 	var s string
 	if buf.IsEof() {
 		s = ""
-	} else if buf.Lookahead == eolMarker {
+	} else if buf.Lookahead == EOLMarker {
 		// At end of line (value is empty), return empty string
 		s = ""
 	} else if buf.ByteCursor == buf.Line.Size() {
@@ -187,23 +188,23 @@ func (buf *lineBuffer) ReadLineRemainder() string {
 
 // The scanner has to match UTF-8 characters (runes) from the input. Matching is done using
 // predicate functions (instead of direct comparison).
-//
-// singleRune returns a predicate to match a single rune
-func singleRune(r rune) func(rune) bool {
+
+// SingleRune returns a predicate to match a single rune
+func SingleRune(r rune) func(rune) bool {
 	return func(arg rune) bool {
 		return arg == r
 	}
 }
 
-// anyRuneOf retuns a predicate to match a single rune out of a set of runes.
-func anything(runes ...rune) func(rune) bool {
+// Anything returns a predicate that matches any rune.
+func Anything(runes ...rune) func(rune) bool {
 	return func(rune) bool {
 		return true
 	}
 }
 
-// anyRuneOf retuns a predicate to match a single rune out of a set of runes.
-func anyRuneOf(runes ...rune) func(rune) bool {
+// AnyRuneOf returns a predicate to match a single rune out of a set of runes.
+func AnyRuneOf(runes ...rune) func(rune) bool {
 	return func(arg rune) bool {
 		for _, r := range runes {
 			if arg == r {
@@ -214,7 +215,7 @@ func anyRuneOf(runes ...rune) func(rune) bool {
 	}
 }
 
-func (buf *lineBuffer) match(predicate func(rune) bool) bool {
+func (buf *LineBuffer) Match(predicate func(rune) bool) bool {
 	if buf.IsEof() || buf.LastError != nil {
 		return false
 	}
@@ -222,12 +223,12 @@ func (buf *lineBuffer) match(predicate func(rune) bool) bool {
 		return false
 	}
 	var err error
-	if buf.Lookahead == eolMarker {
+	if buf.Lookahead == EOLMarker {
 		err = buf.AdvanceLine()
 	} else {
 		err = buf.AdvanceCursor()
 	}
-	if err != nil && err != errAtEof {
+	if err != nil && err != ErrAtEof {
 		buf.LastError = err
 		return false
 	}

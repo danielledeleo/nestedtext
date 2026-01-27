@@ -2,7 +2,6 @@ package nestext
 
 import (
 	"fmt"
-	"log"
 	"strings"
 	"testing"
 )
@@ -21,18 +20,6 @@ func TestParserUsageError(t *testing.T) {
 	}
 }
 
-func TestParserStack(t *testing.T) {
-	p := newParser()
-	p.pushNonterm(false)
-	if err := p.stack.pushKV(nil, "one"); err != nil {
-		t.Fatalf("pushing a value onto the stack failed: %v", err)
-	}
-	two := "2"
-	if err := p.stack.pushKV(&two, "two"); err == nil {
-		t.Fatal("pushing a key onto the stack should fail, didn't")
-	}
-}
-
 func TestSimpleDict(t *testing.T) {
 	input := `
 # Example for a dict
@@ -41,13 +28,12 @@ b: World
 `
 	result, err := Parse(strings.NewReader(input))
 	if err != nil {
-		log.Fatal("parsing failed")
+		t.Fatal("parsing failed")
 	}
-	fmt.Printf("result = %#v\n", result)
+	t.Logf("result = %#v\n", result)
 }
 
 func TestTableParse(t *testing.T) {
-	p := newParser()
 	t.Logf("============================================================")
 	inputs := []struct {
 		text    string
@@ -107,7 +93,7 @@ b: How are you?
 	}
 	for i, input := range inputs {
 		buf := strings.NewReader(input.text)
-		result, err := p.Parse(buf)
+		result, err := Parse(buf)
 		if err == nil && !input.correct {
 			t.Errorf("[%2d] expected error to occur, didn't", i)
 		} else if err == nil {

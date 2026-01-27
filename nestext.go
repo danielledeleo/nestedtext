@@ -3,7 +3,7 @@
 // https://nestedtext.org .
 //
 // To get a feel for the NestedText format, take a look at the following example
-// (shortended version from the NestedText site):
+// (shortened version from the NestedText site):
 /*
    # Contact information for our officers
 
@@ -29,38 +29,48 @@
 // NestedText does not interpret any data types (unlike YAML), nor does it impose a schema.
 // All of that has to be done by the application.
 //
-// Parsing NestedText
+// # Parsing NestedText
 //
-// Parse is the top-level API:
+// Parse is the low-level API that returns interface{} values:
 //
-//    input := `
-//    # Example for a NestedText dict
-//    a: Hello
-//    b: World
-//    `
+//	input := `
+//	# Example for a NestedText dict
+//	a: Hello
+//	b: World
+//	`
 //
-//    result, err := Parse(strings.NewReader(input))
-//    if err != nil {
-//        log.Fatal("parsing failed")
-//    }
-//    fmt.Printf("result = %#v\n", result)
+//	result, err := Parse(strings.NewReader(input))
+//	if err != nil {
+//	    log.Fatal("parsing failed")
+//	}
+//	fmt.Printf("result = %#v\n", result)
 //
 // will yield:
 //
-//     result = map[string]interface {}{"a":"Hello", "b":"World"}
+//	result = map[string]interface {}{"a":"Hello", "b":"World"}
 //
-// Clients may use tools like `mitchellh/mapstructure` or `knadh/koanf` for further processing.
+// # Unmarshaling into structs
 //
-// Encoding to NestedText
+// For type-safe parsing, use Unmarshal with struct tags:
 //
-// Sub-package `ntenc` provides a NestedText encoder.
+//	type Config struct {
+//	    Name string `nt:"name"`
+//	    Port int    `nt:"port"`
+//	}
 //
+//	var config Config
+//	err := Unmarshal([]byte(input), &config)
+//
+// # Encoding to NestedText
+//
+// Use Marshal to encode Go values to NestedText:
+//
+//	data, err := Marshal(config)
+//
+// Or use Encode for streaming to an io.Writer.
 package nestext
 
-import (
-	"fmt"
-	"unicode"
-)
+import "fmt"
 
 // --- Error type ------------------------------------------------------------
 
@@ -75,7 +85,7 @@ type NestedTextError struct {
 // We use a custom error type which contains a numeric error code.
 const (
 	NoError       = 0
-	ErrCodeUsage  = 1   // errorneous API call
+	ErrCodeUsage  = 1   // erroneous API call
 	ErrCodeIO     = 10  // error will wrap an underlying I/O error
 	ErrCodeSchema = 100 // schema violation; error may wrap an underlying error
 
@@ -84,6 +94,10 @@ const (
 	ErrCodeFormatNoInput                     // NestedText format error: no input present
 	ErrCodeFormatToplevelIndent              // NestedText format error: top-level item was indented
 	ErrCodeFormatIllegalTag                  // NestedText format error: tag not recognized
+
+	// Unmarshal errors
+	ErrCodeUnmarshal     // unmarshal error
+	ErrCodeUnmarshalType // type mismatch during unmarshal
 )
 
 // Error produces an error message from a NestedText error.
@@ -112,99 +126,9 @@ func WrapError(code int, errMsg string, err error) NestedTextError {
 	return e
 }
 
-// --- Parser token type -----------------------------------------------------
-
-// parserToken is a type for communicating between the line-level scanner and the parser.
-// The scanner will read lines and wrap the content into parser tags, i.e., tokens for the
-// parser to perform its operations on.
-type parserToken struct {
-	LineNo, ColNo int             // start of the tag within the input source
-	TokenType     parserTokenType // type of token
-	Indent        int             // amount of indent of this line
-	Content       []string        // UTF-8 content of the line (without indent and item tag)
-	Error         error           // error condition, if any
-}
-
-//go:generate stringer -type=parserTokenType
-type parserTokenType int8
-
-const (
-	undefined parserTokenType = iota
-	eof
-	emptyDocument
-	docRoot
-	listItem
-	listItemMultiline
-	stringMultiline
-	dictKeyMultiline
-	inlineList
-	inlineDict
-	inlineDictKeyValue
-	inlineDictKey
-)
-
-// newParserToken creates a parser token initialized with line and column index.
-func newParserToken(line, col int) *parserToken {
-	return &parserToken{
-		LineNo:  line,
-		ColNo:   col,
-		Content: []string{},
-	}
-}
-
-func (token *parserToken) String() string {
-	return fmt.Sprintf("token[at(%d,%d) ind=%d type=%s %#v]", token.LineNo, token.ColNo, token.Indent,
-		token.TokenType, token.Content)
-}
-
-// --- Inline token type -----------------------------------------------------
-
-//go:generate stringer -type=inlineTokenType
-type inlineTokenType int8
-
-const (
-	character inlineTokenType = iota
-	whitespace
-	newline
-	comma
-	colon
-	listOpen
-	listClose
-	dictOpen
-	dictClose
-)
-
-var inlineTokenMap = map[rune]inlineTokenType{
-	' ':  whitespace,
-	'\n': newline,
-	',':  comma,
-	':':  colon,
-	'[':  listOpen,
-	']':  listClose,
-	'{':  dictOpen,
-	'}':  dictClose,
-}
-
-func inlineTokenFor(r rune) inlineTokenType {
-	if t, ok := inlineTokenMap[r]; ok {
-		return t
-	}
-	if unicode.IsSpace(r) {
-		return whitespace
-	}
-	return character
-}
-
-// --- Error helpers ---------------------------------------------------------
-
-func makeParsingError(token *parserToken, code int, errMsg string) NestedTextError {
-	err := NestedTextError{
-		Code: code,
-		msg:  errMsg,
-	}
-	if token != nil {
-		err.Line = token.LineNo
-		err.Column = token.ColNo
-	}
-	return err
+// Unmarshaler is the interface implemented by types that can unmarshal
+// a NestedText value of themselves. The input can be a string, []interface{},
+// or map[string]interface{} depending on the NestedText structure.
+type Unmarshaler interface {
+	UnmarshalNT(value interface{}) error
 }
