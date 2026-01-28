@@ -77,7 +77,7 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 		return nil, nil
 	}
 	if p.depth >= maxNestingDepth {
-		return nil, p.MakeFormatError("exceeded max nesting depth")
+		return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat, "exceeded max nesting depth")
 	}
 	p.depth++
 	defer func() { p.depth-- }()
@@ -90,7 +90,11 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 				"inline list syntax is not allowed in minimal mode")
 		}
 		p.Inline.LineNo = p.Token.LineNo
-		result, err = p.Inline.Parse(StateS2, p.Token.Content[0], p.MakeFormatError)
+		inlineToken := p.Token
+		makeErr := func(msg string) error {
+			return p.MakeParsingError(inlineToken, p.ErrCodeFormat, msg)
+		}
+		result, err = p.Inline.Parse(StateS2, p.Token.Content[0], makeErr)
 		if err == nil {
 			if p.Token = p.Sc.NextToken(); p.Token.Error != nil {
 				return nil, p.Token.Error
@@ -102,7 +106,11 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 				"inline dict syntax is not allowed in minimal mode")
 		}
 		p.Inline.LineNo = p.Token.LineNo
-		result, err = p.Inline.Parse(StateS1, p.Token.Content[0], p.MakeFormatError)
+		inlineToken := p.Token
+		makeErr := func(msg string) error {
+			return p.MakeParsingError(inlineToken, p.ErrCodeFormat, msg)
+		}
+		result, err = p.Inline.Parse(StateS1, p.Token.Content[0], makeErr)
 		if err == nil {
 			if p.Token = p.Sc.NextToken(); p.Token.Error != nil {
 				return nil, p.Token.Error
@@ -117,7 +125,7 @@ func (p *Parser) parseAny(indent int) (result interface{}, err error) {
 		}
 		result, err = p.parseDict(indent)
 	default:
-		return nil, p.MakeFormatError(fmt.Sprintf("internal error: unknown item type %d", p.Token.TokenType))
+		return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat, fmt.Sprintf("internal error: unknown item type %d", p.Token.TokenType))
 	}
 	return
 }
@@ -142,7 +150,11 @@ func (p *Parser) parseListItems(indent int) (result interface{}, err error) {
 			value, err = p.parseListItemMultiline(indent)
 		}
 		if value != nil && err == nil {
-			if pushErr := p.Stack.PushKV(nil, value, p.MakeFormatError); pushErr != nil {
+			currentToken := p.Token
+			makeErr := func(msg string) error {
+				return p.MakeParsingError(currentToken, p.ErrCodeFormat, msg)
+			}
+			if pushErr := p.Stack.PushKV(nil, value, makeErr); pushErr != nil {
 				return nil, pushErr
 			}
 		} else if err != nil {
@@ -156,7 +168,7 @@ func (p *Parser) parseListItems(indent int) (result interface{}, err error) {
 
 func (p *Parser) parseListItem(indent int) (result interface{}, err error) {
 	if p.Token.Indent > indent {
-		return nil, p.MakeFormatError(
+		return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat,
 			"invalid indent: may only follow an item that does not already have a value")
 	}
 	if p.Token.Indent < indent {
@@ -181,7 +193,7 @@ func (p *Parser) parseListItemMultiline(indent int) (result interface{}, err err
 	}
 	result, err = p.parseAny(p.Token.Indent)
 	if p.Token.Indent > indent {
-		return nil, p.MakeFormatError(
+		return nil, p.MakeParsingError(p.Token, p.ErrCodeFormat,
 			"invalid indent: may only follow an item that does not already have a value")
 	}
 	return
@@ -196,7 +208,7 @@ func (p *Parser) parseDict(indent int) (result interface{}, err error) {
 	result, err = p.Stack.Tos().ReduceToItem()
 	p.Stack.Pop()
 	if p.Token.Indent > indent {
-		err = p.MakeFormatError("partial dedent")
+		err = p.MakeParsingError(p.Token, p.ErrCodeFormat, "partial dedent")
 	}
 	return
 }
@@ -228,7 +240,11 @@ func (p *Parser) parseDictKeyValuePairs(indent int) (result interface{}, err err
 			if err != nil {
 				return
 			}
-			if pushErr := p.Stack.PushKV(kv.key, kv.value, p.MakeFormatError); pushErr != nil {
+			currentToken := p.Token
+			makeErr := func(msg string) error {
+				return p.MakeParsingError(currentToken, p.ErrCodeFormat, msg)
+			}
+			if pushErr := p.Stack.PushKV(kv.key, kv.value, makeErr); pushErr != nil {
 				return nil, pushErr
 			}
 		} else {
@@ -294,7 +310,7 @@ func (p *Parser) parseDictKeyValuePairWithMultilineKey(indent int) (kv keyValueP
 	kv.key = &key
 	// Multiline key MUST be followed by an indented value
 	if p.Token.Indent <= indent {
-		return kv, p.MakeFormatError("multiline key requires a value")
+		return kv, p.MakeParsingError(p.Token, p.ErrCodeFormat, "multiline key requires a value")
 	}
 	kv.value, err = p.parseAny(p.Token.Indent)
 	return

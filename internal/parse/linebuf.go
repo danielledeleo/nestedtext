@@ -101,6 +101,9 @@ func (buf *LineBuffer) readRune() (rune, error) {
 	}
 	// Check for invalid UTF-8: ReadRune returns RuneError with width 1 for invalid bytes
 	if r == utf8.RuneError && runeLen == 1 {
+		// TODO: Add position info to this error. Currently uses MakeFormatError (no position)
+		// because this runs before tokens are created. Would need to pass CurrentLine to a
+		// new error constructor that accepts line number directly. See issue: error positions.
 		return 0, buf.MakeFormatError("invalid UTF-8 byte sequence")
 	}
 	buf.ByteCursor += int64(runeLen)
@@ -139,6 +142,9 @@ func (buf *LineBuffer) AdvanceLine() error {
 		buf.Line = strings.NewReader(buf.Text) // Set Line early to prevent nil pointer issues
 		// Validate UTF-8
 		if !utf8.ValidString(buf.Text) {
+			// TODO: Add position info to this error. Currently uses MakeFormatError (no position)
+			// because this runs before tokens are created. buf.CurrentLine is available but would
+			// need API changes to pass line number to error constructor. See issue: error positions.
 			return buf.MakeFormatError("invalid UTF-8 byte sequence")
 		}
 		if !buf.IsIgnoredLine() {
