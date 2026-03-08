@@ -63,15 +63,22 @@ type StackEntry struct {
 	NontermState InlineParserState  // sub-nonterm, or 0 for root entry (used for inline-parser only)
 }
 
-func (entry StackEntry) ReduceToItem() (interface{}, error) {
+// DictBuilder is a function that constructs a dictionary from parallel key/value slices.
+// When nil, ReduceToItem builds a standard map[string]interface{}.
+type DictBuilder func(keys []string, values []interface{}) interface{}
+
+func (entry StackEntry) ReduceToItem(buildDict DictBuilder) (interface{}, error) {
 	if entry.Keys == nil {
 		return entry.Values, nil
 	}
-	dict := make(map[string]interface{}, len(entry.Values))
 	if len(entry.Keys) > 0 && len(entry.Values) != len(entry.Keys) {
 		panic(fmt.Sprintf("mixed item: number of keys (%d) not equal to number of values (%d)",
 			len(entry.Keys), len(entry.Values)))
 	}
+	if buildDict != nil {
+		return buildDict(entry.Keys, entry.Values), nil
+	}
+	dict := make(map[string]interface{}, len(entry.Values))
 	for i, key := range entry.Keys {
 		dict[key] = entry.Values[i]
 	}

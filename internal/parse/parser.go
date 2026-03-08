@@ -18,6 +18,7 @@ type Parser struct {
 	Inline      *InlineItemParser // sub-parser for inline lists/dicts
 	TopLevel    string            // type of top-level item
 	MinimalMode bool              // if true, reject inline syntax and multi-line keys
+	BuildDict   DictBuilder       // optional custom dict builder (nil = map[string]interface{})
 	Stack       Stack             // parser stack
 	depth       int               // current nesting depth
 
@@ -136,7 +137,7 @@ func (p *Parser) parseList(indent int) (result interface{}, err error) {
 	if err != nil {
 		return nil, err
 	}
-	result, err = p.Stack.Tos().ReduceToItem()
+	result, err = p.Stack.Tos().ReduceToItem(p.BuildDict)
 	p.Stack.Pop()
 	return
 }
@@ -205,7 +206,7 @@ func (p *Parser) parseDict(indent int) (result interface{}, err error) {
 	if err != nil {
 		return nil, err
 	}
-	result, err = p.Stack.Tos().ReduceToItem()
+	result, err = p.Stack.Tos().ReduceToItem(p.BuildDict)
 	p.Stack.Pop()
 	if p.Token.Indent > indent {
 		err = p.MakeParsingError(p.Token, p.ErrCodeFormat, "partial dedent")

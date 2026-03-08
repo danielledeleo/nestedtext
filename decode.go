@@ -55,7 +55,7 @@ func (d *Decoder) Decode(v interface{}) error {
 		}
 	}
 
-	parsed, err := parseWithConfig(d.r, d.minimalMode)
+	parsed, err := parseWithConfig(d.r, d.minimalMode, nil)
 	if err != nil {
 		return err
 	}

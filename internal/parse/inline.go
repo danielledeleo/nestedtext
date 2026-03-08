@@ -26,6 +26,7 @@ type InlineItemParser struct {
 	Input        *strings.Reader // reader for Text
 	LineNo       int             // current input line number
 	Stack        Stack           // parser stack
+	BuildDict    DictBuilder     // optional custom dict builder (nil = map[string]interface{})
 
 	// Error creation functions
 	WrapIOError     func(msg string, err error) error
@@ -73,7 +74,7 @@ func (p *InlineItemParser) Parse(initial InlineParserState, input string, makeFo
 			break
 		}
 		if IsAccept(state) {
-			result, err = p.Stack.Tos().ReduceToItem()
+			result, err = p.Stack.Tos().ReduceToItem(p.BuildDict)
 			if err != nil {
 				p.Stack.Tos().Error = err
 				state = StateError

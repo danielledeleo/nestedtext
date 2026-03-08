@@ -14,20 +14,44 @@ import (
 //
 // If a non-nil error is returned, it will be of type NestedTextError.
 func Parse(r io.Reader, opts ...DecodeOption) (interface{}, error) {
-	// Apply options to a temporary decoder to extract configuration
 	d := &Decoder{}
 	for _, opt := range opts {
 		if err := opt(d); err != nil {
 			return nil, err
 		}
 	}
-	return parseWithConfig(r, d.minimalMode)
+	return parseWithConfig(r, d.minimalMode, nil)
+}
+
+// ParseOrdered is like Parse but returns *Dict instead of map[string]interface{}
+// for dictionaries, preserving the insertion order of keys as defined in the
+// NestedText spec. Lists and strings are returned as []interface{} and string,
+// the same as Parse.
+func ParseOrdered(r io.Reader, opts ...DecodeOption) (interface{}, error) {
+	d := &Decoder{}
+	for _, opt := range opts {
+		if err := opt(d); err != nil {
+			return nil, err
+		}
+	}
+	return parseWithConfig(r, d.minimalMode, orderedDictBuilder)
+}
+
+// orderedDictBuilder constructs a *Dict from parallel key/value slices.
+var orderedDictBuilder parse.DictBuilder = func(keys []string, values []interface{}) interface{} {
+	d := &Dict{entries: make([]DictEntry, len(keys))}
+	for i, key := range keys {
+		d.entries[i] = DictEntry{Key: key, Value: values[i]}
+	}
+	return d
 }
 
 // parseWithConfig is the internal parsing function that accepts configuration directly.
-func parseWithConfig(r io.Reader, minimalMode bool) (interface{}, error) {
+func parseWithConfig(r io.Reader, minimalMode bool, buildDict parse.DictBuilder) (interface{}, error) {
 	p := parse.NewParser(makeFormatError, wrapIOError, makeParsingError, ErrCodeFormat)
 	p.MinimalMode = minimalMode
+	p.BuildDict = buildDict
+	p.Inline.BuildDict = buildDict
 	return p.Parse(r, makeFormatError, wrapIOError, ErrCodeFormatNoInput)
 }
 

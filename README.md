@@ -123,6 +123,37 @@ result, err := nestedtext.Parse(strings.NewReader(input))
 // result is string, []interface{}, or map[string]interface{}
 ```
 
+### Ordered dictionaries
+
+The NestedText spec defines dictionaries as ordered collections. `Parse` returns `map[string]interface{}` which loses key order. Use `ParseOrdered` to get `*Dict` values that preserve insertion order:
+
+```go
+result, err := nestedtext.ParseOrdered(strings.NewReader(input))
+// result is string, []interface{}, or *nestedtext.Dict
+
+switch v := result.(type) {
+case *nestedtext.Dict:
+    for _, entry := range v.Entries() {
+        fmt.Printf("%s: %v\n", entry.Key, entry.Value)
+    }
+}
+```
+
+`Dict` methods:
+
+| Method | Description |
+|--------|-------------|
+| `Len() int` | Number of entries |
+| `Get(key) (interface{}, bool)` | Lookup by key |
+| `Keys() []string` | All keys in insertion order |
+| `Entries() []DictEntry` | All entries in insertion order |
+| `Set(key, value)` | Add or update a key |
+| `ToMap() map[string]interface{}` | Recursive conversion to plain map |
+
+Nested dictionaries are also `*Dict` at all levels. `ToMap()` recursively converts the entire tree back to `map[string]interface{}` when you don't need order.
+
+### Encoding
+
 For encoding without structs:
 
 ```go
