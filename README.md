@@ -1,5 +1,10 @@
 # nestedtext
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/danielledeleo/nestedtext.svg)](https://pkg.go.dev/github.com/danielledeleo/nestedtext)
+[![Tests](https://github.com/danielledeleo/nestedtext/actions/workflows/test.yml/badge.svg)](https://github.com/danielledeleo/nestedtext/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/danielledeleo/nestedtext)](https://goreportcard.com/report/github.com/danielledeleo/nestedtext)
+[![Release](https://img.shields.io/github/v/release/danielledeleo/nestedtext)](https://github.com/danielledeleo/nestedtext/releases/latest)
+
 A Go library for [NestedText](https://nestedtext.org/), a human-friendly data format.
 
 This is a fork of [github.com/npillmayer/nestext](https://github.com/npillmayer/nestext) with an idiomatic Go API and compatibility with NestedText 3.8.
