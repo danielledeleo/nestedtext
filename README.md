@@ -4,6 +4,7 @@
 [![Tests](https://github.com/danielledeleo/nestedtext/actions/workflows/test.yml/badge.svg)](https://github.com/danielledeleo/nestedtext/actions)
 [![Go Report Card](https://goreportcard.com/badge/github.com/danielledeleo/nestedtext)](https://goreportcard.com/report/github.com/danielledeleo/nestedtext)
 [![Release](https://img.shields.io/github/v/release/danielledeleo/nestedtext)](https://github.com/danielledeleo/nestedtext/releases/latest)
+[![NestedText](https://img.shields.io/badge/NestedText-3.8-blue)](https://nestedtext.org/)
 
 A Go library for [NestedText](https://nestedtext.org/), a human-friendly data format.
 

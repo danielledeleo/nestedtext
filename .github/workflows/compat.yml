@@ -1,0 +1,137 @@
+name: Upstream Compatibility
+
+on:
+  schedule:
+    - cron: '0 9 * * 1' # Every Monday at 9:00 UTC
+  workflow_dispatch: # Allow manual trigger
+
+jobs:
+  check-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          submodules: true
+
+      - uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
+        with:
+          go-version: '1.26'
+
+      - name: Check for upstream test suite changes
+        id: check
+        run: |
+          cd testsuite/official_tests
+          PINNED=$(git rev-parse HEAD)
+          git fetch https://github.com/KenKundert/nestedtext_tests.git master
+          LATEST=$(git rev-parse FETCH_HEAD)
+
+          echo "pinned=$PINNED" >> "$GITHUB_OUTPUT"
+          echo "latest=$LATEST" >> "$GITHUB_OUTPUT"
+
+          if [ "$PINNED" = "$LATEST" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Test suite is up to date."
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "New commits in upstream test suite:"
+            git log --oneline "$PINNED..$LATEST"
+          fi
+
+      - name: Run tests against latest upstream
+        if: steps.check.outputs.changed == 'true'
+        id: test
+        run: |
+          cd testsuite/official_tests
+          git checkout ${{ steps.check.outputs.latest }}
+          cd ../..
+          go test ./testsuite/ -v 2>&1 | tee test-output.txt
+        continue-on-error: true
+
+      - name: Open issue if tests fail
+        if: steps.check.outputs.changed == 'true' && steps.test.outcome == 'failure'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            const output = fs.readFileSync('test-output.txt', 'utf8');
+            const pinned = '${{ steps.check.outputs.pinned }}'.substring(0, 7);
+            const latest = '${{ steps.check.outputs.latest }}'.substring(0, 7);
+            const title = `Upstream test suite compatibility failure (${pinned}..${latest})`;
+
+            // Don't create duplicate issues
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-compat',
+            });
+            if (existing.data.some(i => i.title === title)) {
+              console.log('Issue already exists, skipping.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              labels: ['upstream-compat'],
+              body: [
+                '## Upstream test suite compatibility failure',
+                '',
+                `The [official NestedText test suite](https://github.com/KenKundert/nestedtext_tests) has new commits (\`${pinned}..${latest}\`) that cause test failures.`,
+                '',
+                '<details>',
+                '<summary>Test output</summary>',
+                '',
+                '```',
+                output.substring(0, 60000),
+                '```',
+                '</details>',
+                '',
+                '### Next steps',
+                '- Review the upstream changes',
+                '- Update the submodule pin once compatibility is confirmed: `git submodule update --remote testsuite/official_tests`',
+              ].join('\n'),
+            });
+
+      - name: Open issue for submodule update
+        if: steps.check.outputs.changed == 'true' && steps.test.outcome == 'success'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const pinned = '${{ steps.check.outputs.pinned }}'.substring(0, 7);
+            const latest = '${{ steps.check.outputs.latest }}'.substring(0, 7);
+            const title = `Update test suite submodule (${pinned}..${latest})`;
+
+            const existing = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'upstream-compat',
+            });
+            if (existing.data.some(i => i.title === title)) {
+              console.log('Issue already exists, skipping.');
+              return;
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              labels: ['upstream-compat'],
+              body: [
+                '## New upstream test suite version available',
+                '',
+                `The [official NestedText test suite](https://github.com/KenKundert/nestedtext_tests) has new commits (\`${pinned}..${latest}\`) and **all tests pass**.`,
+                '',
+                'Update the submodule pin:',
+                '```',
+                'cd testsuite/official_tests',
+                'git fetch https://github.com/KenKundert/nestedtext_tests.git master',
+                'git checkout FETCH_HEAD',
+                'cd ../..',
+                'git add testsuite/official_tests',
+                'git commit -m "Update official test suite submodule"',
+                '```',
+              ].join('\n'),
+            });
