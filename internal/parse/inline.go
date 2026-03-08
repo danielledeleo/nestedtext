@@ -51,7 +51,8 @@ func (p *InlineItemParser) Parse(initial InlineParserState, input string, makeFo
 	p.TextPosition, p.Marker = 0, 0
 
 	p.pushNonterm(initial)
-	var oldState, state InlineParserState = 0, initial
+	var oldState InlineParserState
+	state := initial
 	for len(p.Stack) > 0 {
 		ch, w, err := p.Input.ReadRune()
 		if err != nil {
@@ -185,19 +186,19 @@ func stateIndex(s InlineParserState) int {
 //
 //	A  ws \n ,  :  [  ]  {  }  _S(S1) _S(S2)
 var inlineStateMachine = [...][chClassCnt]InlineParserState{
-	{StateError, StateError, StateError, StateError, StateError, 7, StateError, 1, StateError, StateError, StateError}, // state 0, initial
-	{2, 2, StateError, StateError, 3, StateError, StateError, StateError, StateA1, StateError, StateError},             // state 1
-	{2, 2, StateError, StateError, 3, StateError, StateError, StateError, StateError, StateError, StateError},          // state 2
-	{4, 3, StateError, 6, StateError, StateS2, StateError, StateS1, StateA1, 5, 5},                                     // state 3
-	{4, 4, StateError, 6, StateError, StateError, StateError, StateError, StateA1, StateError, StateError},             // state 4
-	{StateError, 5, StateError, 6, StateError, StateError, StateError, StateError, StateA1, StateError, StateError},    // state 5
-	{2, 6, StateError, StateError, 3, StateError, StateError, StateError, StateError, StateError, StateError},          // state 6
-	{9, 8, StateError, 7, 9, StateS2, StateA2, StateS1, StateError, 10, 10},                                            // state 7
-	{9, 8, StateError, 7, 9, StateS2, StateA2, StateS1, StateError, 10, 10},                                            // state 8
-	{9, 9, StateError, 7, 9, StateError, StateA2, StateError, StateError, StateError, StateError},                      // state 9
-	{StateError, 10, StateError, 7, StateError, StateError, StateA2, StateError, StateError, StateError, StateError},   // state 10
-	{StateError, StateError, StateError, StateError, StateError, StateError, StateError, 1, StateError, StateError, StateError}, // state S1
-	{StateError, StateError, StateError, StateError, StateError, 7, StateError, StateError, StateError, StateError, StateError}, // state S2
+	{StateError, StateError, StateError, StateError, StateError, 7, StateError, 1, StateError, StateError, StateError},                   // state 0, initial
+	{2, 2, StateError, StateError, 3, StateError, StateError, StateError, StateA1, StateError, StateError},                               // state 1
+	{2, 2, StateError, StateError, 3, StateError, StateError, StateError, StateError, StateError, StateError},                            // state 2
+	{4, 3, StateError, 6, StateError, StateS2, StateError, StateS1, StateA1, 5, 5},                                                       // state 3
+	{4, 4, StateError, 6, StateError, StateError, StateError, StateError, StateA1, StateError, StateError},                               // state 4
+	{StateError, 5, StateError, 6, StateError, StateError, StateError, StateError, StateA1, StateError, StateError},                      // state 5
+	{2, 6, StateError, StateError, 3, StateError, StateError, StateError, StateError, StateError, StateError},                            // state 6
+	{9, 8, StateError, 7, 9, StateS2, StateA2, StateS1, StateError, 10, 10},                                                              // state 7
+	{9, 8, StateError, 7, 9, StateS2, StateA2, StateS1, StateError, 10, 10},                                                              // state 8
+	{9, 9, StateError, 7, 9, StateError, StateA2, StateError, StateError, StateError, StateError},                                        // state 9
+	{StateError, 10, StateError, 7, StateError, StateError, StateA2, StateError, StateError, StateError, StateError},                     // state 10
+	{StateError, StateError, StateError, StateError, StateError, StateError, StateError, 1, StateError, StateError, StateError},          // state S1
+	{StateError, StateError, StateError, StateError, StateError, 7, StateError, StateError, StateError, StateError, StateError},          // state S2
 	{StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError}, // state A1
 	{StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError, StateError}, // state A2
 }

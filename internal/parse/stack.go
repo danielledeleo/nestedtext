@@ -56,11 +56,11 @@ func (s *Stack) PushKV(str *string, val interface{}, makeFormatError func(string
 // StackEntry represents the parser stack entry for a non-terminal.
 // Stack entries collect the information for an item, either a list or a dict.
 type StackEntry struct {
-	Values       []interface{}      // list of values, either list items or dict values
-	Keys         []string           // list of keys, empty for list items
-	Key          *string            // current key to set value for, if in a dict
-	Error        error              // if error occurred: remember it
-	NontermState InlineParserState  // sub-nonterm, or 0 for root entry (used for inline-parser only)
+	Values       []interface{}     // list of values, either list items or dict values
+	Keys         []string          // list of keys, empty for list items
+	Key          *string           // current key to set value for, if in a dict
+	Error        error             // if error occurred: remember it
+	NontermState InlineParserState // sub-nonterm, or 0 for root entry (used for inline-parser only)
 }
 
 // DictBuilder is a function that constructs a dictionary from parallel key/value slices.
@@ -90,11 +90,11 @@ type InlineParserState int8
 
 // Inline parser states
 const (
-	StateError InlineParserState = -1   // error state
-	StateS1    InlineParserState = 11   // non-terminal S1 (dict)
-	StateS2    InlineParserState = 12   // non-terminal S2 (list)
-	StateA1    InlineParserState = 13   // acceptance state A1
-	StateA2    InlineParserState = 14   // acceptance state A2
+	StateError InlineParserState = -1 // error state
+	StateS1    InlineParserState = 11 // non-terminal S1 (dict)
+	StateS2    InlineParserState = 12 // non-terminal S2 (list)
+	StateA1    InlineParserState = 13 // acceptance state A1
+	StateA2    InlineParserState = 14 // acceptance state A2
 )
 
 // IsErrorState is a predicate on parser states.

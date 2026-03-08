@@ -34,11 +34,11 @@ type TestSuite struct {
 }
 
 type LoadTestCase struct {
-	LoadIn   string                 `json:"load_in"`   // base64-encoded NestedText input
-	LoadOut  interface{}            `json:"load_out"`  // expected output (can be nil, string, list, or dict)
-	LoadErr  map[string]interface{} `json:"load_err"`  // error details if error expected
-	Encoding string                 `json:"encoding"`  // encoding (usually "utf-8")
-	Types    map[string]int         `json:"types"`     // line type counts
+	LoadIn   string                 `json:"load_in"`  // base64-encoded NestedText input
+	LoadOut  interface{}            `json:"load_out"` // expected output (can be nil, string, list, or dict)
+	LoadErr  map[string]interface{} `json:"load_err"` // error details if error expected
+	Encoding string                 `json:"encoding"` // encoding (usually "utf-8")
+	Types    map[string]int         `json:"types"`    // line type counts
 }
 
 type DumpTestCase struct {

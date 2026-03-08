@@ -353,11 +353,11 @@ func (enc *Encoder) encodeReflected(indent int, tree interface{}, bcnt int, err 
 					bcnt, err = enc.encodeIfNotEmpty(item, indent, bcnt, err)
 				}
 			} else { // output key as a multi-line key
-			if enc.minimalMode {
-				return 0, makeNestedTextError(ErrCodeSchema,
-					"map key contains newline; multi-line keys are not allowed in minimal mode")
-			}
-			S := strings.Split(key, "\n")
+				if enc.minimalMode {
+					return 0, makeNestedTextError(ErrCodeSchema,
+						"map key contains newline; multi-line keys are not allowed in minimal mode")
+				}
+				S := strings.Split(key, "\n")
 				for _, s := range S {
 					bcnt, err = enc.indent(bcnt, err, indent)
 					if s == "" {
@@ -618,4 +618,3 @@ func (enc *Encoder) wr(bcnt int, err error, data []byte) (int, error) {
 	}
 	return bcnt + c, err
 }
-
