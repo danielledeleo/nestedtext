@@ -276,6 +276,200 @@ func TestMarshalUnmarshalRoundTrip(t *testing.T) {
 	}
 }
 
+// --- Round-trip safety tests ---
+// These tests verify that the encoder's output can be re-parsed to produce
+// the original value. Failures indicate the encoder produces invalid NestedText.
+
+func TestRoundTrip_EmptyList(t *testing.T) {
+	// Issue: empty []interface{} produces no output instead of []
+	encoded, err := Marshal([]interface{}{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	list, ok := result.([]interface{})
+	if !ok {
+		t.Fatalf("expected []interface{}, got %T (nil=%v)\nencoded output: %q", result, result == nil, encoded)
+	}
+	if len(list) != 0 {
+		t.Errorf("expected empty list, got %v", list)
+	}
+}
+
+func TestRoundTrip_KeyStartingWithHash(t *testing.T) {
+	// Issue: key "#key" encodes as "#key: value" which re-parses as a comment
+	input := map[string]interface{}{"#key": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T (nil=%v)\nencoded output: %q", result, result == nil, encoded)
+	}
+	v, ok := m["#key"]
+	if !ok {
+		t.Errorf("key '#key' lost in round-trip\nencoded output: %q\nre-parsed: %v", encoded, m)
+	} else if v != "value" {
+		t.Errorf("value = %v, want 'value'", v)
+	}
+}
+
+func TestRoundTrip_KeyStartingWithDash(t *testing.T) {
+	// Issue: key "- item" encodes verbatim but re-parses as a list item
+	input := map[string]interface{}{"- item": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T\nencoded output: %q", result, encoded)
+	}
+	if _, ok := m["- item"]; !ok {
+		t.Errorf("key '- item' lost in round-trip\nencoded output: %q\nre-parsed: %v", encoded, result)
+	}
+}
+
+func TestRoundTrip_KeyStartingWithGreaterThan(t *testing.T) {
+	// Issue: key "> text" encodes verbatim but re-parses as a string item
+	input := map[string]interface{}{"> text": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T\nencoded output: %q", result, encoded)
+	}
+	if _, ok := m["> text"]; !ok {
+		t.Errorf("key '> text' lost in round-trip\nencoded output: %q\nre-parsed: %v", encoded, result)
+	}
+}
+
+func TestRoundTrip_KeyStartingWithBracket(t *testing.T) {
+	// Issue: key "[foo]" encodes verbatim but re-parses as an inline list
+	input := map[string]interface{}{"[foo]": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T\nencoded output: %q", result, encoded)
+	}
+	if _, ok := m["[foo]"]; !ok {
+		t.Errorf("key '[foo]' lost in round-trip\nencoded output: %q\nre-parsed: %v", encoded, result)
+	}
+}
+
+func TestRoundTrip_KeyStartingWithBrace(t *testing.T) {
+	// Issue: key "{foo}" encodes verbatim but re-parses as an inline dict
+	input := map[string]interface{}{"{foo}": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T\nencoded output: %q", result, encoded)
+	}
+	if _, ok := m["{foo}"]; !ok {
+		t.Errorf("key '{foo}' lost in round-trip\nencoded output: %q\nre-parsed: %v", encoded, result)
+	}
+}
+
+func TestRoundTrip_WhitespaceOnlyKey(t *testing.T) {
+	// Issue: whitespace-only key "   " encodes as "   : value" but parser
+	// trims it to "", which is an invalid empty key
+	input := map[string]interface{}{"   ": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m, ok := result.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected map, got %T\nencoded output: %q", result, encoded)
+	}
+	if _, ok := m["   "]; !ok {
+		t.Errorf("whitespace-only key lost in round-trip\nencoded output: %q\nre-parsed keys: %v", encoded, m)
+	}
+}
+
+func TestRoundTrip_KeyWithColonNoSpace(t *testing.T) {
+	// Keys containing ":" but not ": " should stay inline, not be forced
+	// to multi-line key format
+	input := map[string]interface{}{"http://example.com": "value"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should be inline: "http://example.com: value\n"
+	// Not multi-line: ": http://example.com\n    > value\n"
+	if strings.Contains(string(encoded), ": http") {
+		t.Errorf("key with colon (no space) was unnecessarily forced to multi-line\nencoded output: %q", encoded)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	m := result.(map[string]interface{})
+	if _, ok := m["http://example.com"]; !ok {
+		t.Errorf("key lost in round-trip\nencoded output: %q\nre-parsed: %v", encoded, m)
+	}
+}
+
+func TestEncode_NilInList(t *testing.T) {
+	// nil values in lists should not encode as the string "<nil>"
+	input := []interface{}{"a", nil, "b"}
+	encoded, err := Marshal(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "<nil>") {
+		t.Errorf("nil encoded as string '<nil>'\nencoded output: %q", encoded)
+	}
+	result, err := Parse(strings.NewReader(string(encoded)))
+	if err != nil {
+		t.Fatalf("re-parse failed: %v\nencoded output: %q", err, encoded)
+	}
+	list := result.([]interface{})
+	if len(list) != 3 {
+		t.Fatalf("expected 3 items, got %d\nencoded output: %q", len(list), encoded)
+	}
+	// nil should round-trip as empty string (NestedText has no null type)
+	if list[0] != "a" || list[1] != "" || list[2] != "b" {
+		t.Errorf("list = %v, want [a  b]", list)
+	}
+}
+
 // ----------------------------------------------------------------------
 
 func expectEncode(t *testing.T, tree interface{}, target string) {

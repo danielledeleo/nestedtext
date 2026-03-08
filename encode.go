@@ -154,6 +154,11 @@ func (enc *Encoder) encode(indent int, tree interface{}, bcnt int, err error) (i
 		return bcnt, err
 	}
 
+	// nil encodes as empty (NestedText has no null type)
+	if tree == nil {
+		return bcnt, nil
+	}
+
 	// Check for Marshaler interface
 	if m, ok := tree.(Marshaler); ok {
 		v, marshalErr := m.MarshalNT()
@@ -245,6 +250,10 @@ func (enc *Encoder) encode(indent int, tree interface{}, bcnt int, err error) (i
 			bcnt, err = enc.wr(bcnt, err, []byte{'\n'})
 		}
 	case []interface{}:
+		if len(t) == 0 {
+			bcnt, err = enc.wr(bcnt, err, []byte("[]\n"))
+			break
+		}
 		for _, item := range t {
 			bcnt, err = enc.indent(bcnt, err, indent)
 			bcnt, err = enc.wr(bcnt, err, []byte("-"))
@@ -298,6 +307,9 @@ func (enc *Encoder) encodeReflected(indent int, tree interface{}, bcnt int, err 
 		return enc.encode(indent, v.Elem().Interface(), bcnt, err)
 	case reflect.Slice, reflect.Array:
 		l := v.Len()
+		if l == 0 {
+			return enc.wr(bcnt, err, []byte("[]\n"))
+		}
 		for i := 0; i < l; i++ {
 			item := v.Index(i).Interface()
 			bcnt, err = enc.indent(bcnt, err, indent)
@@ -504,7 +516,38 @@ var encItemPattern = []string{
 	"{},:\n", // Dict
 }
 
+// keyNeedsMultiline returns true if a dict key must use multi-line key
+// syntax (": key") to avoid ambiguity when re-parsed. This matches the
+// Python reference implementation's logic.
+func keyNeedsMultiline(key string) bool {
+	if key == "" || strings.Contains(key, "\n") {
+		return true
+	}
+	if key != strings.TrimSpace(key) { // leading/trailing whitespace
+		return true
+	}
+	if key[0] == '#' { // comment
+		return true
+	}
+	if key[0] == '[' || key[0] == '{' { // inline list/dict
+		return true
+	}
+	if len(key) >= 2 {
+		prefix := key[:2]
+		if prefix == "- " || prefix == "> " || prefix == ": " { // tags
+			return true
+		}
+	}
+	if strings.Contains(key, ": ") { // embedded dict tag
+		return true
+	}
+	return false
+}
+
 func isInlineable(what int, item interface{}) (bool, []byte) {
+	if item == nil {
+		return false, nil
+	}
 	switch reflect.ValueOf(item).Kind() {
 	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.Struct:
 		return false, nil
@@ -512,6 +555,12 @@ func isInlineable(what int, item interface{}) (bool, []byte) {
 		s := item.(string)
 		if s == "" {
 			return false, nil
+		}
+		if what == encAsKey {
+			if keyNeedsMultiline(s) {
+				return false, nil
+			}
+			return true, []byte(s)
 		}
 		if strings.ContainsAny(s, encItemPattern[what]) {
 			return false, nil
