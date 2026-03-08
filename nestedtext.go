@@ -35,7 +35,9 @@
 // # Low-level API
 //
 // Use [Parse] for dynamic data that returns interface{} (string, []interface{},
-// or map[string]interface{}). Use [NewEncoder] and [NewDecoder] for streaming.
+// or map[string]interface{}). Use [ParseOrdered] to get [*Dict] instead of
+// map[string]interface{}, preserving dictionary key insertion order as required
+// by the NestedText spec. Use [NewEncoder] and [NewDecoder] for streaming.
 package nestedtext
 
 import (
